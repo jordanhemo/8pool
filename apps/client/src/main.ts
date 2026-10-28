@@ -12,7 +12,7 @@ import { PrivateRoomUI } from "./privateRoom";
 import { prefs } from "./settings";
 import { Net } from "./net";
 import { Toast } from "./toast";
-import { Wallet, friendlyError } from "./wallet";
+import { NoWalletError, Wallet, friendlyError, isMobileBrowser, walletApps } from "./wallet";
 
 // Dev-only stand-in wallet for browser testing (?devwallet=1|2). Dead code in production builds.
 if (import.meta.env.DEV) {
@@ -115,12 +115,21 @@ async function ensureWallet(): Promise<Wallet> {
   return wallet;
 }
 
+/** Phone browsers have no wallet extension: offer to reopen the game inside a wallet app. */
+function offerWalletApps() {
+  toast.show(
+    "Your browser has no wallet. Open the game in your wallet app to connect, then tap Connect there.",
+    [...walletApps().map((a) => ({ label: a.name, run: () => { location.href = a.href; } })), { label: "Cancel", run: () => toast.hide() }],
+  );
+}
+
 async function connectWallet() {
   try {
     const w = await ensureWallet();
     w.onAccountChange(() => location.reload());
     net.send({ t: "auth_request", address: w.address! });
   } catch (e) {
+    if (e instanceof NoWalletError && isMobileBrowser()) return offerWalletApps();
     lobby.setError(friendlyError(e));
   }
 }

@@ -1,7 +1,7 @@
 // Units: millimetres and seconds.
 export const TABLE_W = 2540;
 export const TABLE_H = 1270;
-export const BALL_R = 28.575;
+export const BALL_R = 37.15; // 30% over regulation (28.575): bigger balls read better on small screens
 
 export const DT = 1 / 240;
 export const FRAME_EVERY = 4; // record one frame per 4 sim steps (60fps)

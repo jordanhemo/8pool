@@ -18,6 +18,29 @@ interface Eip1193 {
   on?(event: string, handler: (...a: any[]) => void): void;
 }
 
+/** Thrown when the page has no injected wallet, e.g. regular mobile Chrome, which has no extensions. */
+export class NoWalletError extends Error {
+  constructor() {
+    super("No wallet found. Install MetaMask (or another browser wallet) and reload.");
+  }
+}
+
+export const isMobileBrowser = (): boolean => /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || matchMedia("(pointer: coarse)").matches;
+
+/**
+ * Deep links that reopen this page inside a wallet app's own browser, where the wallet is injected.
+ * Mobile browsers can't talk to a wallet app directly, so this is how "Connect" reaches the app.
+ */
+export function walletApps(): { name: string; href: string }[] {
+  const url = location.href.split("#")[0];
+  const bare = url.replace(/^https?:\/\//, "");
+  return [
+    { name: "MetaMask", href: `https://metamask.app.link/dapp/${bare}` },
+    { name: "Coinbase Wallet", href: `https://go.cb-w.com/dapp?cb_url=${encodeURIComponent(url)}` },
+    { name: "Trust Wallet", href: `https://link.trustwallet.com/open_url?coin_id=60&url=${encodeURIComponent(url)}` },
+  ];
+}
+
 /** Browser wallet (MetaMask etc.) plus the PoolBank contract calls. */
 export class Wallet {
   address: Address | null = null;
@@ -28,7 +51,7 @@ export class Wallet {
 
   constructor(private info: ChainInfo) {
     const eth = (window as any).ethereum as Eip1193 | undefined;
-    if (!eth) throw new Error("No wallet found. Install MetaMask (or another browser wallet) and reload.");
+    if (!eth) throw new NoWalletError();
     this.provider = eth;
     this.chain = defineChain({
       id: info.chainId,

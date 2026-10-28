@@ -268,7 +268,7 @@ button:disabled { cursor: default; }
   font-size: 15px; text-align: center; line-height: 1.4; animation: pop 0.2s ease-out;
 }
 #toast a { color: #8ab4f8; }
-#toast .actions { display: flex; gap: 10px; justify-content: center; margin-top: 12px; }
+#toast .actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 12px; }
 #toast .actions:empty { display: none; }
 #toast button { min-height: 40px; padding: 0 18px; border-radius: 11px; font-weight: 700; background: linear-gradient(180deg, var(--green), var(--green-d)); color: #04140c; }
 #toast button:disabled { opacity: 0.5; }
