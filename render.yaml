@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: eightpool-server
+    runtime: docker
+    dockerfilePath: ./apps/server/Dockerfile
+    dockerContext: .
+    plan: starter # a persistent disk and an always-on instance need a paid plan
+    numInstances: 1 # rooms, queues and play authorizations live in memory
+    healthCheckPath: /health
+    disk:
+      name: pool-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - { key: STAKED, value: "1" }
+      - { key: BANK_ADDRESS, value: "0xD419Ccd66b02811351bEc16CCE87609C349547Ff" }
+      - { key: CHAIN_ID, value: "11155111" }
+      - { key: RPC_URL, value: "https://ethereum-sepolia-rpc.publicnode.com" }
+      - { key: ALLOWED_ORIGINS, sync: false } # the client's https origin
+      - { key: RESULT_SIGNER_PRIVATE_KEY, sync: false } # operator + result signer

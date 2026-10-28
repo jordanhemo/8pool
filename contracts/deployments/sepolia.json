@@ -1,0 +1,9 @@
+{
+  "network": "ethereum-sepolia",
+  "chainId": 11155111,
+  "PoolEscrow": "0xDC88e671A367226833594fEDA281cc48a564F3e9",
+  "deployTx": "0x10a7f671397d6efba108dcd17431d42fb2ecc72072c5d0e85f8c7f876e177590",
+  "owner": "0xf266E9Bf060df29715f5926C0745C73Fe7c1d9Ed",
+  "resultSigner": "0x85B8DedB03a6C6A25b89cc989865dEe05d335205",
+  "rakeBps": 0
+}

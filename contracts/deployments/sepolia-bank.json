@@ -1,0 +1,10 @@
+{
+  "chainId": 11155111,
+  "contract": "PoolBank",
+  "address": "0xD419Ccd66b02811351bEc16CCE87609C349547Ff",
+  "tx": "0x4dc9430a587067b7353ab143d703dfa31ccafaf23f38dc985fa6a148f7b4140e",
+  "owner": "0xf266E9Bf060df29715f5926C0745C73Fe7c1d9Ed",
+  "operator": "0x85B8DedB03a6C6A25b89cc989865dEe05d335205",
+  "resultSigner": "0x85B8DedB03a6C6A25b89cc989865dEe05d335205",
+  "rakeBps": 0
+}

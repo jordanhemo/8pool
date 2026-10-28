@@ -1,0 +1,8 @@
+node_modules
+dist
+.env
+*.db
+contracts/out
+contracts/cache
+apps/server/data
+*.local

@@ -1,0 +1,12 @@
+node_modules
+**/node_modules
+.env
+.git
+contracts/out
+contracts/cache
+contracts/lib
+apps/client/src
+apps/client/dist
+apps/client/node_modules
+apps/server/data
+**/dist

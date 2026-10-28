@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#07090c" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <title>8 Ball Pool</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Russo+One&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/src/styles/app.css" />
+  </head>
+  <body>
+    <div id="game"></div>
+
+    <div id="hud" hidden>
+      <div class="topbar">
+        <button id="menuBtn" class="icon-btn" aria-label="Menu">
+          <svg viewBox="0 0 24 24" width="22" height="22"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" fill="none" /></svg>
+        </button>
+        <div class="pcard" data-seat="0">
+          <div class="pc-in">
+            <div class="avatar"><b>?</b></div>
+            <div class="pinfo">
+              <div class="pname-row"><span class="pname"></span><span class="ptag"></span><span class="ptime"></span></div>
+              <div class="pgroup"><span class="gname">OPEN TABLE</span><span class="gleft"></span></div>
+              <div class="pballs"></div>
+            </div>
+          </div>
+        </div>
+        <div class="center">
+          <div id="potBadge" class="pot" hidden></div>
+        </div>
+        <div class="pcard right" data-seat="1">
+          <div class="pc-in">
+            <div class="avatar"><b>?</b></div>
+            <div class="pinfo">
+              <div class="pname-row"><span class="pname"></span><span class="ptag"></span><span class="ptime"></span></div>
+              <div class="pgroup"><span class="gname">OPEN TABLE</span><span class="gleft"></span></div>
+              <div class="pballs"></div>
+            </div>
+          </div>
+        </div>
+        <button id="viewBtn" class="icon-btn view" aria-label="Toggle camera view">3D</button>
+      </div>
+
+      <div id="hudMsg" class="hud-msg"></div>
+      <div id="banner" class="hud-banner" hidden></div>
+      <button id="replayBtn" class="replay-btn" hidden>Replay last shot</button>
+      <div id="hint" class="hint"></div>
+
+      <div id="power" class="power" hidden>
+        <div class="power-top"><b id="powerPct">0</b><small>%</small></div>
+        <div class="power-track">
+          <div class="power-cap"></div>
+          <div class="power-fill"></div>
+          <svg class="power-spring" viewBox="0 0 24 100" preserveAspectRatio="none" aria-hidden="true"><polyline points="12,0 21,4 3,10 21,16 3,22 21,28 3,34 21,40 3,46 21,52 3,58 21,64 3,70 21,76 3,82 21,88 3,94 12,100" /></svg>
+          <div class="power-knob"><i></i><i></i><i></i></div>
+        </div>
+        <div class="power-label">PULL</div>
+      </div>
+
+      <div id="spin" class="spin" hidden aria-label="Cue ball spin">
+        <div class="spin-ball"><i id="spinDot"></i></div>
+        <span>SPIN</span>
+      </div>
+      <button id="emoteBtn" class="icon-btn emote-btn" aria-label="Quick chat" hidden>&#9786;</button>
+      <div id="emotes" class="emotes" hidden></div>
+      <div class="bubble" data-seat="0" hidden></div>
+      <div class="bubble right" data-seat="1" hidden></div>
+
+      <div id="pauseMenu" class="sheet" hidden>
+        <div class="sheet-card">
+          <h2>Menu</h2>
+          <button id="resumeBtn" class="btn primary">Resume</button>
+          <button id="cameraBtn" class="btn ghost">Camera</button>
+          <button id="helpMenuBtn" class="btn ghost">How to play</button>
+          <button id="soundBtn" class="btn ghost">Effects</button>
+          <button id="musicBtn" class="btn ghost">Music</button>
+          <button id="leaveBtn" class="btn danger">Leave</button>
+        </div>
+      </div>
+
+      <div id="over" class="modal" hidden>
+        <div class="modal-card">
+          <div class="modal-title"></div>
+          <div class="modal-sub"></div>
+          <div class="modal-actions"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="help" class="help" hidden role="dialog" aria-modal="true" aria-label="How to play">
+      <div class="help-card">
+        <header class="help-head">
+          <h2>How to play</h2>
+          <div id="helpTabs" class="help-tabs" role="tablist"></div>
+          <button id="helpClose" class="icon-btn" aria-label="Close">&#10005;</button>
+        </header>
+        <div id="helpBody" class="help-body"></div>
+      </div>
+    </div>
+
+    <div id="toast" hidden><div class="text"></div><div class="actions"></div></div>
+
+    <div id="fade"></div>
+    <div id="lobby">
+      <header class="top">
+        <div class="top-left">
+          <button id="playerChip" class="chip player-chip" aria-label="Profile and settings">
+            <span class="avatar" id="meAvatar">?</span>
+            <span class="chip-text"><strong id="chipName">Player</strong><small id="chipSub">Not connected</small></span>
+          </button>
+          <button id="topConnect" class="btn small primary" hidden>Connect</button>
+        </div>
+        <div class="top-right">
+          <button id="balanceChip" class="chip balance-chip" aria-label="Open wallet">
+            <svg viewBox="0 0 24 24" width="18" height="18"><path d="M12 2 5 12l7 4 7-4-7-10Zm0 15-7-4 7 9 7-9-7 4Z" fill="currentColor" /></svg>
+            <span class="chip-text"><small>Balance</small><strong id="balanceTop">Free play</strong></span>
+            <span id="topAdd" class="plus" hidden>+</span>
+          </button>
+          <button id="helpBtn" class="icon-btn" aria-label="How to play">?</button>
+          <button id="muteBtn" class="icon-btn" aria-label="Toggle sound"></button>
+        </div>
+      </header>
+
+      <div class="menu-scroll">
+        <div class="menu">
+          <div class="brand">
+            <span class="ball8">8</span>
+            <div><h1>8 BALL<em>POOL</em></h1><p>PLAY FOR TOKENS</p></div>
+          </div>
+
+          <div id="searching" class="searching" hidden>
+            <div class="rack-spinner"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+            <div class="search-text"><strong>Finding an opponent…</strong><span id="searchTime">0:00</span></div>
+            <button id="cancel" class="btn ghost small">Cancel</button>
+          </div>
+          <div id="status" class="status"></div>
+
+          <nav id="mainMenu" class="mainmenu" aria-label="Main menu"></nav>
+
+          <section id="screen" class="screen" hidden>
+            <header class="screen-head">
+              <button id="backBtn" class="btn ghost small back" aria-label="Back">&#8592; Back</button>
+              <h2 id="screenTitle"></h2>
+            </header>
+
+            <div class="pane" data-pane="play">
+              <div id="playMenu" class="mainmenu"></div>
+            </div>
+
+            <div class="pane" data-pane="matchmaking">
+              <p class="lead">Pick a stake. You are matched with a player at the same table.</p>
+              <div id="tiers" class="tiers"></div>
+            </div>
+
+            <div class="pane" data-pane="tournament">
+              <div id="venues" class="venues"></div>
+              <div id="tLobby" class="searching" hidden>
+                <div class="rack-spinner"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+                <div class="search-text"><strong>Waiting for players…</strong><span id="tLobbyText"></span></div>
+                <button id="tLeave" class="btn ghost small">Leave</button>
+              </div>
+              <div id="bracket" class="bracket" hidden></div>
+            </div>
+
+            <div class="pane" data-pane="local">
+              <p class="lead">Two players, one screen. No stakes: warm up and learn the table.</p>
+              <button id="practice" class="btn primary wide big">Start local match</button>
+            </div>
+
+            <div class="pane" data-pane="rooms">
+              <p class="lead">Choose the room your matches look like. It only changes how your game looks. Tournaments are played in their own venue.</p>
+              <div id="roomList" class="rooms"></div>
+            </div>
+
+            <div class="pane" data-pane="wallet">
+              <p id="walletOff" class="lead" hidden>Staked play isn't enabled on this server.</p>
+              <div id="walletRow" class="card">
+                <div class="label">Wallet</div>
+                <div class="wallet-row">
+                  <button id="connect" class="btn small primary">Connect wallet</button>
+                  <span id="wallet" class="pill"></span>
+                </div>
+              </div>
+              <div id="bankRow" class="card bank" hidden>
+                <div class="bank-top"><span class="label">Balance</span><div id="balance"></div></div>
+                <div id="bankActions" class="bank-actions">
+                  <div class="amount"><input id="amount" value="0.02" inputmode="decimal" aria-label="Amount in ETH" /><span>ETH</span></div>
+                  <button id="addFunds" class="btn small primary">Add funds</button>
+                  <button id="withdraw" class="btn small ghost">Withdraw</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="pane" data-pane="stats">
+              <div id="statsBody" class="stats"></div>
+              <p class="lead dim">Global leaderboard is coming soon.</p>
+            </div>
+
+            <div class="pane" data-pane="settings">
+              <div class="card setting-card">
+                <label class="label" for="name">Player name</label>
+                <input id="name" maxlength="20" placeholder="Your name" autocomplete="off" autocapitalize="words" />
+              </div>
+              <div id="settingsBody" class="settings"></div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
