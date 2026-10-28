@@ -4,13 +4,8 @@ services:
     runtime: docker
     dockerfilePath: ./apps/server/Dockerfile
     dockerContext: .
-    plan: starter # a persistent disk and an always-on instance need a paid plan
-    numInstances: 1 # rooms, queues and play authorizations live in memory
+    plan: free # testing only: sleeps when idle and has no disk, so running matches and unsettled results don't survive a restart
     healthCheckPath: /health
-    disk:
-      name: pool-data
-      mountPath: /data
-      sizeGB: 1
     envVars:
       - { key: STAKED, value: "1" }
       - { key: BANK_ADDRESS, value: "0xD419Ccd66b02811351bEc16CCE87609C349547Ff" }

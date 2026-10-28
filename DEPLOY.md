@@ -24,6 +24,7 @@ set ALLOWED_ORIGINS=https://<your-client-domain> in the Render service's environ
 (comma-separated for several origins; empty allows any).
 
 ## Notes
+- `render.yaml` uses Render's free plan (no card): the service sleeps after ~15 min idle (first connection then takes about a minute) and has no disk, so unsettled results are lost on restart. Switch to `plan: starter` plus a disk before real use.
 - Run exactly one server machine: rooms, queues and play authorizations are in memory.
 - `/data/results.json` (the Render disk) holds unsettled signed results; do not delete it while `/health` shows `unsettled > 0`.
 - Watch `operatorWei`: the operator pays gas for every match start and settle.
