@@ -1,5 +1,6 @@
 import { EMOTES, type EmoteId, type GameState } from "@8pool/shared";
 import { colorOf, cssColor } from "./game3d/textures";
+import { rankBadge, rankName } from "./rankui";
 import { isMusicMuted, isSfxMuted, setMusicMuted, setSfxMuted, sfx } from "./audio";
 
 export interface HudHandlers {
@@ -144,7 +145,7 @@ export class Hud {
   insets(): { top: number; right: number; bottom: number } {
     const bar = this.el.querySelector(".topbar")!.getBoundingClientRect();
     // The power slider only shows while aiming; reserve its width always so the camera doesn't jump.
-    return { top: Math.ceil(bar.bottom) + 6, right: window.innerWidth < 560 ? 62 : 72, bottom: 34 };
+    return { top: Math.ceil(bar.bottom) + 4, right: window.innerWidth < 560 ? 62 : 72, bottom: window.innerHeight < 520 ? 22 : 34 };
   }
 
   setPlayers(names: [string, string], me: number | null, stake?: string): void {
@@ -157,6 +158,35 @@ export class Hud {
     });
     this.pot.hidden = !stake;
     this.pot.textContent = stake ?? "";
+  }
+
+  /** Show each player's rank beside their name; tapping a card opens that player's profile. */
+  setRanks(players: { pid: string; rating: number }[] | undefined, open: (pid: string) => void): void {
+    this.cards.forEach((c, i) => {
+      const p = players?.[i];
+      const el = q(c, ".prank");
+      el.hidden = !p;
+      c.classList.toggle("clickable", !!p);
+      c.onclick = p ? () => open(p.pid) : null;
+      if (p) {
+        el.innerHTML = `${rankBadge(p.rating, 16)}<b>${p.rating}</b>`;
+        el.title = `${rankName(p.rating)} ${p.rating}`;
+      }
+    });
+  }
+
+  private ratingNote: { won: boolean; delta: number; rating: number; ranked: boolean } | null = null;
+
+  /** Rating change for the over modal. May arrive just before or just after the modal opens. */
+  setOverRating(r: { won: boolean; delta: number; rating: number; ranked: boolean } | null): void {
+    this.ratingNote = r;
+    const el = q(this.over, ".modal-rating");
+    if (!r) { el.hidden = true; return; }
+    el.hidden = false;
+    el.className = `modal-rating ${r.ranked ? (r.delta >= 0 ? "up" : "down") : "friendly"}`;
+    el.innerHTML = r.ranked
+      ? `${rankBadge(r.rating, 30)}<div><b>${r.delta >= 0 ? "+" : ""}${r.delta}</b><span>${rankName(r.rating)} · ${r.rating}</span></div>`
+      : `<div><span>Friendly match: rankings unchanged</span></div>`;
   }
 
   private turnSeat: number | null = null;
@@ -368,6 +398,7 @@ export class Hud {
     this.toggleSheet(false);
     this.showPower(false);
     this.over.className = `modal ${o.tone}`;
+    this.setOverRating(this.ratingNote);
     q(this.over, ".modal-title").textContent = o.title;
     q(this.over, ".modal-sub").textContent = o.sub;
     const actions = q(this.over, ".modal-actions");
@@ -384,7 +415,11 @@ export class Hud {
     else if (o.tone === "lose") sfx.lose();
   }
 
-  hideOver(): void { this.over.hidden = true; }
+  hideOver(): void {
+    this.over.hidden = true;
+    this.ratingNote = null;
+    q(this.over, ".modal-rating").hidden = true;
+  }
 
   private disarm(): void {
     window.clearTimeout(this.leaveArmed);

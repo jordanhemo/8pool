@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { Chain, createChain, readEnvKeys } from "./chain";
 import { loadConfig } from "./config";
 import { startServer } from "./server";
+import { PlayerStore } from "./players";
 import { ResultStore } from "./store";
 
 const config = loadConfig();
@@ -29,9 +30,11 @@ if (process.env.STAKED !== "0" && env.BANK_ADDRESS && env.RESULT_SIGNER_PRIVATE_
 }
 
 const store = new ResultStore(process.env.RESULTS_FILE ?? fileURLToPath(new URL("../data/results.json", import.meta.url)));
+const players = new PlayerStore(process.env.PLAYERS_FILE ?? fileURLToPath(new URL("../data/players.json", import.meta.url)));
 const server = await startServer(config, {
   chain,
   store,
+  players,
   onMatchEnd: (r) => console.log(`match ${r.matchId} (${r.tier}) won by ${r.names[r.winner]}: ${r.reason}`),
 });
 console.log(

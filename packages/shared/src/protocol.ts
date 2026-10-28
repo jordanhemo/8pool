@@ -1,5 +1,6 @@
 import type { ShotEvents, Spin } from "./physics";
 import type { GameState } from "./rules";
+import { PRIVATE_CODE_LEN, isStakeString, normalizeCode } from "./tournament";
 import type { TournamentRound, TournamentView, Venue } from "./tournament";
 
 export type Seat = 0 | 1;
@@ -16,8 +17,40 @@ export const EMOTES = ["gg", "nice", "oops", "wow", "thanks", "hurry"] as const;
 export type EmoteId = (typeof EMOTES)[number];
 export const isEmote = (v: unknown): v is EmoteId => typeof v === "string" && (EMOTES as readonly string[]).includes(v);
 
+/** One row of the leaderboard. `pid` is a public id: it never reveals a wallet address or a session token. */
+export interface PlayerRow {
+  pid: string;
+  name: string;
+  rating: number;
+  played: number;
+  won: number;
+  lost: number;
+}
+
+export interface RecentMatch {
+  opp: string;
+  oppPid: string;
+  won: boolean;
+  /** Rating change; 0 for unranked (private) matches. */
+  delta: number;
+  at: number;
+  tier: string;
+  ranked: boolean;
+}
+
+export interface Profile extends PlayerRow {
+  peak: number;
+  streak: number;
+  best: number;
+  /** Leaderboard position, or null before the first ranked match. */
+  rank: number | null;
+  recent: RecentMatch[];
+  /** The viewer's record against this player. */
+  vsYou?: { won: number; lost: number };
+}
+
 export type ClientMessage =
-  | { t: "hello"; name?: string; token?: string }
+  | { t: "hello"; name?: string; token?: string; guest?: string }
   | { t: "queue"; tier: string }
   | { t: "leave_queue" }
   | ({ t: "shot" } & WireShot)
@@ -25,6 +58,11 @@ export type ClientMessage =
   | { t: "emote"; id: EmoteId }
   | { t: "tournament_join"; venue: string }
   | { t: "tournament_leave" }
+  | { t: "leaderboard" }
+  | { t: "profile"; pid: string }
+  | { t: "private_create"; stake: string }
+  | { t: "private_join"; code: string }
+  | { t: "private_cancel" }
   | { t: "auth_request"; address: string }
   | { t: "auth"; address: string; signature: string }
   /** The player's EIP-712 `Play` signature: the server may lock up to `maxStake` per match until `expiry`. */
@@ -53,9 +91,16 @@ export interface ChainInfo {
 }
 
 export type ServerMessage =
-  | { t: "welcome"; token: string; name: string; tiers: string[]; venues?: Venue[]; resumed: boolean; chain?: ChainInfo; address?: string }
+  | { t: "welcome"; token: string; name: string; tiers: string[]; venues?: Venue[]; resumed: boolean; chain?: ChainInfo; address?: string; pid?: string }
   | { t: "auth_challenge"; message: string }
-  | { t: "authed"; address: string }
+  | { t: "authed"; address: string; pid?: string }
+  | { t: "leaderboard"; entries: PlayerRow[]; me: PlayerRow | null; myRank: number | null }
+  | { t: "profile"; pid: string; profile: Profile | null }
+  /** A private room the player is in: the host waits, the match starts when a friend joins. */
+  | { t: "private_state"; code: string; stake: string; host: string; guest: string | null; you: "host" | "guest" }
+  | { t: "private_closed"; reason: string }
+  /** Rating after a finished match. `ranked` is false for private rooms, where nothing changes. */
+  | { t: "rating"; won: boolean; delta: number; rating: number; ranked: boolean }
   /** Wallet balance held in the bank contract, plus whether a valid play authorization is on file. */
   | { t: "bankroll"; balanceWei: string; inMatch: boolean; authorized: boolean; authExpiry?: number; maxStakeWei?: string }
   /** Sign this once (typed data `Play`) so matches can start without a wallet popup. */
@@ -85,6 +130,9 @@ export type ServerMessage =
       state: GameState;
       resumed: boolean;
       tournament?: { id: string; round: TournamentRound };
+      /** Public ids and ratings of both players, so the HUD can show ranks and open profiles. */
+      players?: [{ pid: string; rating: number }, { pid: string; rating: number }];
+      ranked?: boolean;
     } & TurnTiming)
   | ({ t: "shot_result"; matchId: string; seat: Seat; shot: WireShot; report: ShotReport; state: GameState } & TurnTiming)
   | ({ t: "state"; matchId: string; state: GameState; reason: string } & TurnTiming)
@@ -110,7 +158,8 @@ export function parseClientMessage(raw: string): ClientMessage | null {
     case "hello":
       if (m.name !== undefined && (typeof m.name !== "string" || m.name.length > 64)) return null;
       if (m.token !== undefined && (typeof m.token !== "string" || m.token.length > 128)) return null;
-      return { t: "hello", name: m.name, token: m.token };
+      if (m.guest !== undefined && (typeof m.guest !== "string" || !/^[\w-]{8,64}$/.test(m.guest))) return null;
+      return { t: "hello", name: m.name, token: m.token, guest: m.guest };
     case "queue":
       return typeof m.tier === "string" && m.tier.length <= 32 ? { t: "queue", tier: m.tier } : null;
     case "auth_request":
@@ -135,6 +184,18 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       return typeof m.venue === "string" && m.venue.length <= 32 ? { t: "tournament_join", venue: m.venue } : null;
     case "tournament_leave":
       return { t: "tournament_leave" };
+    case "leaderboard":
+      return { t: "leaderboard" };
+    case "profile":
+      return typeof m.pid === "string" && /^[0-9a-f]{12}$/.test(m.pid) ? { t: "profile", pid: m.pid } : null;
+    case "private_create":
+      return isStakeString(m.stake) ? { t: "private_create", stake: m.stake } : null;
+    case "private_join": {
+      const code = typeof m.code === "string" ? normalizeCode(m.code) : "";
+      return code.length === PRIVATE_CODE_LEN ? { t: "private_join", code } : null;
+    }
+    case "private_cancel":
+      return { t: "private_cancel" };
     case "emote":
       return isEmote(m.id) ? { t: "emote", id: m.id } : null;
     case "shot": {

@@ -40,3 +40,13 @@ export interface TournamentView {
   you: number;
   note?: string;
 }
+
+/** Bounds for a private room's stake, in ETH. */
+export const PRIVATE_MIN_STAKE = "0.0001";
+export const PRIVATE_MAX_STAKE = "0.1";
+export const PRIVATE_CODE_LEN = 5;
+// No 0/O/1/I so a code read aloud or typed from a screenshot isn't ambiguous.
+export const PRIVATE_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+export const normalizeCode = (s: string): string => s.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, PRIVATE_CODE_LEN);
+/** A plain decimal ETH amount ("0.02"), at most 6 decimals. */
+export const isStakeString = (s: unknown): s is string => typeof s === "string" && /^\d{1,3}(\.\d{1,6})?$/.test(s);

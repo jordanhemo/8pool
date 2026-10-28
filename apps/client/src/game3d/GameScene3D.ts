@@ -12,7 +12,7 @@ type MatchStart = Extract<ServerMessage, { t: "match_start" }>;
 
 export type SceneData =
   | { mode: "local"; onExit: () => void }
-  | { mode: "online"; net: Net; start: MatchStart; pot?: string; tournament?: "semis" | "final"; onExit: () => void };
+  | { mode: "online"; net: Net; start: MatchStart; pot?: string; tournament?: "semis" | "final"; openProfile?: (pid: string) => void; onExit: () => void };
 
 /** placing/aiming/charging: it's my shot. waiting: opponent's turn, or my shot is in flight. */
 type Phase = "placing" | "aiming" | "charging" | "waiting" | "animating" | "over";
@@ -113,7 +113,8 @@ export class GameScene3D {
 
   private applyInsets(): void {
     const i = this.hud.insets();
-    this.stage.setInsets({ l: 0, r: i.right, t: i.top, b: i.bottom });
+    // Landscape: reserve the same width on both sides so the table sits in the middle of the screen.
+    this.stage.setInsets({ l: this.stage.portrait ? 0 : i.right, r: i.right, t: i.top, b: i.bottom });
   }
 
   private get shooting(): boolean {
@@ -199,6 +200,7 @@ export class GameScene3D {
     const d = this.data_;
     h.setPlayers(d.mode === "online" ? this.names : ["Player 1", "Player 2"], d.mode === "online" ? this.seat : null, d.mode === "online" ? d.pot : undefined);
     h.setBalls(g.groups, g.balls);
+    h.setRanks(d.mode === "online" ? d.start.players : undefined, (pid) => d.mode === "online" && d.openProfile?.(pid));
     h.setReplay(this.lastShot !== null && !this.over && this.phase !== "animating" && this.phase !== "charging", this.replay !== null);
 
     if (this.over) {
@@ -299,6 +301,9 @@ export class GameScene3D {
         return this.beginTurn();
       case "emote":
         this.hud.showEmote(m.seat, m.id);
+        return;
+      case "rating":
+        this.hud.setOverRating(m);
         return;
       case "opponent_status":
         this.hud.setBanner(m.connected ? "" : "Opponent disconnected — they have 60s to reconnect");

@@ -24,7 +24,7 @@
           <div class="pc-in">
             <div class="avatar"><b>?</b></div>
             <div class="pinfo">
-              <div class="pname-row"><span class="pname"></span><span class="ptag"></span><span class="ptime"></span></div>
+              <div class="pname-row"><span class="pname"></span><span class="prank" hidden></span><span class="ptag"></span><span class="ptime"></span></div>
               <div class="pgroup"><span class="gname">OPEN TABLE</span><span class="gleft"></span></div>
               <div class="pballs"></div>
             </div>
@@ -37,7 +37,7 @@
           <div class="pc-in">
             <div class="avatar"><b>?</b></div>
             <div class="pinfo">
-              <div class="pname-row"><span class="pname"></span><span class="ptag"></span><span class="ptime"></span></div>
+              <div class="pname-row"><span class="pname"></span><span class="prank" hidden></span><span class="ptag"></span><span class="ptime"></span></div>
               <div class="pgroup"><span class="gname">OPEN TABLE</span><span class="gleft"></span></div>
               <div class="pballs"></div>
             </div>
@@ -87,6 +87,7 @@
         <div class="modal-card">
           <div class="modal-title"></div>
           <div class="modal-sub"></div>
+          <div class="modal-rating" hidden></div>
           <div class="modal-actions"></div>
         </div>
       </div>
@@ -101,6 +102,10 @@
         </header>
         <div id="helpBody" class="help-body"></div>
       </div>
+    </div>
+
+    <div id="profile" class="pf" hidden role="dialog" aria-modal="true" aria-label="Player profile">
+      <div class="pf-card sk-panel"></div>
     </div>
 
     <div id="toast" hidden><div class="text"></div><div class="actions"></div></div>
@@ -167,6 +172,44 @@
               <div id="bracket" class="bracket" hidden></div>
             </div>
 
+            <div class="pane" data-pane="private">
+              <div id="pvForm" class="pv-form">
+                <div class="card sk">
+                  <h3>Create a room</h3>
+                  <p id="pvCreateHint" class="lead"></p>
+                  <div id="pvStakeRow" class="stake-row">
+                    <div class="amount"><input id="pvStake" value="0.01" inputmode="decimal" autocomplete="off" aria-label="Stake in ETH" /><span>ETH</span></div>
+                    <div id="pvPresets" class="presets"></div>
+                  </div>
+                  <button id="pvCreate" class="btn primary wide">Create room</button>
+                </div>
+                <div class="card sk">
+                  <h3>Join a friend</h3>
+                  <div class="join-row">
+                    <input id="pvCode" maxlength="5" placeholder="CODE" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Room code" />
+                    <button id="pvJoin" class="btn primary" disabled>Join</button>
+                  </div>
+                </div>
+              </div>
+              <div id="pvWait" class="pv-wait" hidden>
+                <div class="card sk">
+                  <div class="label">Room code</div>
+                  <div id="pvCodeTiles" class="code-tiles"></div>
+                  <p id="pvStakeLine" class="pv-stake"></p>
+                  <div class="searching sk-flat">
+                    <div class="rack-spinner"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+                    <div id="pvStatus" class="search-text"></div>
+                  </div>
+                  <div class="pv-actions">
+                    <button id="pvCopyCode" class="btn ghost small">Copy code</button>
+                    <button id="pvCopyLink" class="btn ghost small">Copy invite link</button>
+                    <button id="pvShare" class="btn primary small" hidden>Share</button>
+                  </div>
+                </div>
+                <button id="pvCancel" class="btn danger wide">Close room</button>
+              </div>
+            </div>
+
             <div class="pane" data-pane="local">
               <p class="lead">Two players, one screen. No stakes: warm up and learn the table.</p>
               <button id="practice" class="btn primary wide big">Start local match</button>
@@ -197,8 +240,7 @@
             </div>
 
             <div class="pane" data-pane="stats">
-              <div id="statsBody" class="stats"></div>
-              <p class="lead dim">Global leaderboard is coming soon.</p>
+              <div id="statsBody" class="ladder"></div>
             </div>
 
             <div class="pane" data-pane="settings">
@@ -211,6 +253,11 @@
           </section>
         </div>
       </div>
+    </div>
+    <div class="rotate" aria-live="polite">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2.5" width="12" height="19" rx="2.4"/><path d="M11 18.5h2"/></svg>
+      <strong>Rotate your phone</strong>
+      <span>8 Ball Pool is played in landscape.</span>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

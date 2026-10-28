@@ -1,14 +1,15 @@
 import { ROOMS, ROOM_ORDER, RoomId } from "./game3d/rooms";
 import { isMusicMuted, isSfxMuted, setMusicMuted, setSfxMuted, sfx } from "./audio";
-import { Quality, loadStats, prefs } from "./settings";
+import { Quality, prefs } from "./settings";
 
-export type ScreenId = "play" | "matchmaking" | "tournament" | "local" | "rooms" | "wallet" | "stats" | "settings";
+export type ScreenId = "play" | "matchmaking" | "tournament" | "private" | "local" | "rooms" | "wallet" | "stats" | "settings";
 
 const ICONS: Record<ScreenId, string> = {
   play: '<path d="M8 5v14l11-7L8 5Z"/>',
   matchmaking: '<path d="M12 3 4 7v5c0 4.4 3.2 8.4 8 9 4.8-.6 8-4.6 8-9V7l-8-4Zm-1 13-3-3 1.4-1.4L11 13.2l3.6-3.6L16 11l-5 5Z"/>',
   tournament: '<path d="M7 4h10v2h3v3c0 2.2-1.8 4-4 4h-.3A5 5 0 0 1 13 15.9V18h3v2H8v-2h3v-2.1A5 5 0 0 1 8.3 13H8c-2.2 0-4-1.8-4-4V6h3V4Zm-1 4v1c0 1.1.9 2 2 2V8H6Zm12 0h-2v3c1.1 0 2-.9 2-2V8Z"/>',
   local: '<circle cx="8" cy="9" r="3.2"/><circle cx="16.5" cy="9" r="3.2"/><path d="M2 19c0-3 2.7-5 6-5s6 2 6 5v1H2v-1Zm12.2-4.6c.7-.3 1.5-.4 2.3-.4 3 0 5.5 1.8 5.5 4.6V20h-6v-1.2c0-1.7-.6-3.1-1.8-4.4Z"/>',
+  private: '<path d="M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5Zm-3 8V7a3 3 0 0 1 6 0v3H9Zm3 4a1.800 1.800 0 0 1 1 3.300V19h-2v-1.700A1.800 1.800 0 0 1 12 14Z"/>',
   rooms: '<path d="M3 21V9l9-6 9 6v12h-6v-7H9v7H3Zm6-9h2V10H9v2Zm4 0h2V10h-2v2Z"/>',
   wallet: '<path d="M3 6a2 2 0 0 1 2-2h13v3H5v1h15a1 1 0 0 1 1 1v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6Zm14 8.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"/>',
   stats: '<path d="M4 20V10h4v10H4Zm6 0V4h4v16h-4Zm6 0v-7h4v7h-4Z"/>',
@@ -19,23 +20,24 @@ interface Item { id: ScreenId; label: string; sub: string }
 
 const ROOT_ITEMS: Item[] = [
   { id: "play", label: "Play", sub: "Matches & tournaments" },
-  { id: "stats", label: "Leaderboard", sub: "Your stats" },
+  { id: "stats", label: "Leaderboard", sub: "Rankings & your stats" },
   { id: "settings", label: "Settings", sub: "Sound, camera, room, name" },
 ];
 
 const PLAY_ITEMS: Item[] = [
   { id: "matchmaking", label: "Matchmaking", sub: "Quick match for tokens" },
   { id: "tournament", label: "Tournament", sub: "Knockout for the big pot" },
+  { id: "private", label: "Private room", sub: "Play a friend, your stake" },
   { id: "local", label: "Local", sub: "2 players, 1 screen" },
 ];
 
 const TITLES: Record<ScreenId, string> = {
-  play: "Play", matchmaking: "Matchmaking", tournament: "Tournament", local: "Local", rooms: "Rooms", wallet: "Wallet", stats: "Leaderboard", settings: "Settings",
+  play: "Play", matchmaking: "Matchmaking", tournament: "Tournament", private: "Private room", local: "Local", rooms: "Rooms", wallet: "Wallet", stats: "Leaderboard", settings: "Settings",
 };
 
 /** Where Back leads. Screens without an entry return to the main menu. */
 const PARENT: Partial<Record<ScreenId, ScreenId>> = {
-  matchmaking: "play", tournament: "play", local: "play", rooms: "settings",
+  matchmaking: "play", tournament: "play", private: "play", local: "play", rooms: "settings",
 };
 
 export interface MenuHandlers {
@@ -43,9 +45,11 @@ export interface MenuHandlers {
   setRoom(id: RoomId, commit: boolean): void;
   getRoom(): RoomId;
   setQuality(q: Quality): void;
+  /** A screen was opened (so it can refresh its data). */
+  onOpen?(id: ScreenId): void;
 }
 
-const FOCUSABLE = "button:not(:disabled):not([hidden])";
+const FOCUSABLE = "button:not(:disabled):not([hidden]), input:not([hidden])";
 
 /** Main-menu navigation: button list, sub-screens, room carousel and settings controls. Fully keyboard driven. */
 export class Menu {
@@ -115,12 +119,12 @@ export class Menu {
     this.current = id;
     this.title.textContent = TITLES[id];
     this.panes.forEach((p) => (p.hidden = p.dataset.pane !== id));
-    if (id === "stats") this.buildStats();
     if (id === "settings") this.buildSettings();
     if (id === "rooms") {
       this.browsing = this.committed;
       this.renderRooms();
     }
+    this.h.onOpen?.(id);
     this.screen.hidden = false;
     this.nav.hidden = true;
     this.lobby.classList.add("in-screen");
@@ -158,12 +162,12 @@ export class Menu {
     requestAnimationFrame(() => {
       if (this.lobby.hidden) return;
       const list = this.items();
-      (list.find((el) => !el.classList.contains("back")) ?? list[0])?.focus({ preventScroll: true });
+      (list.find((el) => el instanceof HTMLButtonElement && !el.classList.contains("back")) ?? list[0])?.focus({ preventScroll: true });
     });
   }
 
   private onKey(e: KeyboardEvent): void {
-    if (this.lobby.hidden || document.getElementById("help")?.hidden === false) return;
+    if (this.lobby.hidden || document.getElementById("help")?.hidden === false || document.getElementById("profile")?.hidden === false) return;
     const t = e.target as HTMLElement | null;
     const typing = t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement;
 
@@ -175,7 +179,8 @@ export class Menu {
       }
       return;
     }
-    if (typing) return;
+    // Up/Down still move on from a text field; Left/Right belong to the caret.
+    if (typing && e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
 
     const forward = e.key === "ArrowDown" || e.key === "ArrowRight";
     const backward = e.key === "ArrowUp" || e.key === "ArrowLeft";
@@ -238,15 +243,7 @@ export class Menu {
     });
   }
 
-  // ---------------------------------------------------------------- stats / settings
-
-  private buildStats(): void {
-    const s = loadStats();
-    const rate = s.played ? Math.round((s.won / s.played) * 100) : 0;
-    const cell = (v: string, l: string) => `<div class="stat"><strong>${v}</strong><span>${l}</span></div>`;
-    document.getElementById("statsBody")!.innerHTML =
-      cell(String(s.played), "Matches") + cell(String(s.won), "Wins") + cell(`${rate}%`, "Win rate") + cell(String(s.streak), "Streak") + cell(String(s.best), "Best streak");
-  }
+  // ---------------------------------------------------------------- settings
 
   private syncMute(): void {
     const el = document.getElementById("muteBtn")!;

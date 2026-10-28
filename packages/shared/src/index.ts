@@ -4,3 +4,4 @@ export * from "./rules";
 export * from "./rng";
 export * from "./protocol";
 export * from "./tournament";
+export * from "./ranking";

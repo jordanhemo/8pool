@@ -7,6 +7,8 @@ import { Hud } from "./hud";
 import { Lobby } from "./lobby";
 import { Help } from "./help";
 import { Menu } from "./menu";
+import { Ladder } from "./ladder";
+import { PrivateRoomUI } from "./privateRoom";
 import { prefs } from "./settings";
 import { Net } from "./net";
 import { Toast } from "./toast";
@@ -53,6 +55,15 @@ const showMenu = () => {
 };
 showMenu();
 window.addEventListener("resize", () => { if (!inGame) layoutMenu(); });
+
+// Phones play in landscape. Browsers only honour the lock in fullscreen/installed mode, so the rotate overlay is the fallback.
+if (matchMedia("(pointer: coarse)").matches) {
+  const lock = () => {
+    document.removeEventListener("pointerdown", lock);
+    void (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }).lock?.("landscape").catch(() => undefined);
+  };
+  document.addEventListener("pointerdown", lock);
+}
 
 const net = new Net(SERVER_URL, storedName);
 const toast = new Toast();
@@ -215,16 +226,34 @@ const lobby = new Lobby(
   storedName,
 );
 
+let myPid: string | null = null;
+const ladder = new Ladder({
+  requestLeaderboard: () => net.send({ t: "leaderboard" }),
+  requestProfile: (pid) => net.send({ t: "profile", pid }),
+  onMine: (p) => lobby.setRating(p && p.played > 0 ? p.rating : null),
+});
+const priv = new PrivateRoomUI({
+  onCreate: (stake) => net.send({ t: "private_create", stake }),
+  onJoin: (code) => net.send({ t: "private_join", code }),
+  onCancel: () => net.send({ t: "private_cancel" }),
+  onError: (msg) => lobby.setError(msg),
+});
+
 const menu = new Menu({
   getRoom: () => stage.roomId,
   setRoom: applyRoom,
   setQuality: (q) => stage.setQuality(q),
+  onOpen: (id) => { if (id === "stats") ladder.refresh(); },
 });
+
+// An invite link (?join=CODE) opens the private room screen with the code filled in.
+const inviteCode = new URLSearchParams(location.search).get("join");
+if (inviteCode) history.replaceState(null, "", location.pathname);
 
 let bank: { balance: bigint; authorized: boolean; inMatch: boolean } | null = null;
 const parseStake = (tier: string) => { try { return parseEther(tier); } catch { return 0n; } };
 
-net.onStatus((s) => lobby.setConnected(s === "open"));
+net.onStatus((s) => { lobby.setConnected(s === "open"); priv.setConnected(s === "open"); });
 net.subscribe((m) => {
   switch (m.t) {
     case "welcome":
@@ -240,6 +269,14 @@ net.subscribe((m) => {
       tview = null;
       lobby.setTournament(null);
       lobby.setTournamentLobby(null);
+      myPid = m.pid ?? null;
+      ladder.setMe(myPid);
+      priv.setChainMode(!!m.chain);
+      priv.setState(null);
+      if (inviteCode && !inGame) {
+        priv.prefill(inviteCode);
+        menu.open("private");
+      }
       break;
     case "auth_challenge":
       wallet
@@ -247,7 +284,24 @@ net.subscribe((m) => {
         .then((signature) => net.send({ t: "auth", address: wallet!.address!, signature }))
         .catch((e) => lobby.setError(friendlyError(e)));
       break;
+    case "leaderboard":
+    case "profile":
+      ladder.onMessage(m);
+      break;
+    case "rating":
+      ladder.setMe(myPid); // refresh the rank shown in the menu
+      break;
+    case "private_state":
+      priv.setState(m);
+      if (!inGame) menu.open("private");
+      break;
+    case "private_closed":
+      priv.setState(null);
+      if (m.reason) lobby.setError(m.reason);
+      break;
     case "authed":
+      myPid = m.pid ?? myPid;
+      ladder.setMe(myPid);
       address = m.address;
       lobby.setWallet(address);
       break;
@@ -286,6 +340,7 @@ net.subscribe((m) => {
     case "error": if (!inGame) lobby.setError(m.message); break;
     // A resumed match after a page refresh arrives while we're in the lobby.
     case "match_start":
+      priv.setState(null);
       if (starting) {
         starting = false;
         lobby.setBusy(false);
@@ -298,7 +353,7 @@ net.subscribe((m) => {
         const pot = round
           ? `${venue?.name ?? "Tournament"} · ${round === "final" ? "Final" : "Semifinal"}`
           : chainInfo ? `Pot ${formatEther(currentStake * 2n)} ETH` : undefined;
-        startScene({ mode: "online", net, start: m, pot, tournament: round });
+        startScene({ mode: "online", net, start: m, pot, tournament: round, openProfile: (pid) => ladder.openProfile(pid) });
       }
       break;
   }

@@ -566,8 +566,12 @@ export class Stage {
   /** Camera height that fits the whole table inside the area not covered by the HUD. */
   private fitDistance(): number {
     const { l, r, t, b } = this.insets;
-    const vw = this.portrait ? OUTER_H : OUTER_W; // extent along the screen's horizontal axis
-    const vh = this.portrait ? OUTER_W : OUTER_H;
+    // On short screens (phones in landscape) the wooden frame is cropped so the playing surface gets the room.
+    const crop = this.h < 520 && this.mode === "top";
+    const ow = crop ? TW + 2 * (FELT_MARGIN + 0.035) : OUTER_W;
+    const oh = crop ? TH + 2 * (FELT_MARGIN + 0.035) : OUTER_H;
+    const vw = this.portrait ? oh : ow; // extent along the screen's horizontal axis
+    const vh = this.portrait ? ow : oh;
     const aw = Math.max(80, this.w - l - r);
     const ah = Math.max(80, this.h - t - b);
     return (Math.max((vh * this.h) / ah, (vw * this.h) / aw) / (2 * Math.tan((FOV * Math.PI) / 360))) * 1.03;

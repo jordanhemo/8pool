@@ -2,9 +2,13 @@ import { randomBytes, randomInt, randomUUID } from "node:crypto";
 import { createServer as createHttpServer } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
 import { formatEther, parseEther } from "viem";
-import { Seat, ServerMessage, TOURNAMENT_SIZE, TournamentRound, TournamentView, VENUES, Venue, parseClientMessage } from "@8pool/shared";
+import {
+  PRIVATE_CODE_ALPHABET, PRIVATE_CODE_LEN, PRIVATE_MAX_STAKE, PRIVATE_MIN_STAKE, Seat, ServerMessage, TOURNAMENT_SIZE, TournamentRound, TournamentView, VENUES, Venue,
+  parseClientMessage,
+} from "@8pool/shared";
 import { Chain, MatchStatus, PlayAuth, sameAddress } from "./chain";
 import { Config } from "./config";
+import { PlayerStore, guestKey, walletKey } from "./players";
 import { Room, RoomResult } from "./room";
 import { ResultStore, StoredResult } from "./store";
 
@@ -26,6 +30,21 @@ interface Session {
   tVenue: string | null;
   /** Bracket the player is still alive in. */
   tournament: Tournament | null;
+  /** Private room the player is waiting in (as host) or has just joined. */
+  priv: PrivateRoom | null;
+  /** Ranking identity: the wallet once signed in, otherwise the browser's guest id. */
+  key: string;
+  /** Public id for `key`. */
+  pid: string;
+}
+
+/** A friends-only table: the host picks the stake, a friend joins with the code. Never rated. */
+interface PrivateRoom {
+  code: string;
+  stake: string;
+  host: Session;
+  guest: Session | null;
+  expiry: NodeJS.Timeout;
 }
 
 /** One knockout bracket. Slots 0-1 play the first semifinal, 2-3 the second. */
@@ -61,6 +80,8 @@ export interface ServerHooks {
   /** Enables staked matches. Without it the server runs free matches only. */
   chain?: Chain;
   store?: ResultStore;
+  /** Ratings and match history. Defaults to an in-memory store. */
+  players?: PlayerStore;
 }
 
 const MAX_MSGS_PER_SEC = 30;
@@ -68,6 +89,9 @@ const MAX_MSGS_PER_SEC = 30;
 export function startServer(config: Config, hooks: ServerHooks = {}): Promise<GameServer> {
   const chain = hooks.chain;
   const store = hooks.store ?? new ResultStore();
+  const players = hooks.players ?? new PlayerStore();
+  const privateMax = config.privateMaxStake ?? PRIVATE_MAX_STAKE;
+  const privates = new Map<string, PrivateRoom>();
   const settleRetryMs = config.settleRetryMs ?? 30_000;
   const authTtlMs = config.authTtlMs ?? 24 * 3600_000;
 
@@ -109,7 +133,7 @@ export function startServer(config: Config, hooks: ServerHooks = {}): Promise<Ga
     [...sessions.values()].filter((s) => s.ws && s.address && players.some((p) => sameAddress(p, s.address!)));
   // A finalist stakes double the buy-in, so the play authorization must cover that too.
   const maxTierStake = () =>
-    [...config.tiers, ...venues.map((v) => doubled(v.buyIn))].map((t) => chain!.stakeWei(t)).reduce((m, v) => (v > m ? v : m), 0n);
+    [...config.tiers, ...venues.map((v) => doubled(v.buyIn)), privateMax].map((t) => chain!.stakeWei(t)).reduce((m, v) => (v > m ? v : m), 0n);
 
   // ------------------------------------------------------------------ bankroll & play authorization
 
@@ -205,9 +229,12 @@ export function startServer(config: Config, hooks: ServerHooks = {}): Promise<Ga
     s.queuedTier = null;
   };
 
-  const startMatch = (a: Session, b: Session, tier: string, bankMatchId?: string, ctx?: MatchCtx) => {
+  const startMatch = (a: Session, b: Session, tier: string, bankMatchId?: string, ctx?: MatchCtx, ranked = true) => {
     const [p0, p1] = randomInt(2) === 0 ? [a, b] : [b, a];
     const seats = [p0, p1] as const;
+    // Identities are fixed now: signing in with a wallet mid-match must not move the result to another profile.
+    const pids = [p0.pid, p1.pid] as const;
+    const rated = ranked && pids[0] !== pids[1];
     const room = new Room(
       randomUUID(),
       tier,
@@ -221,6 +248,16 @@ export function startServer(config: Config, hooks: ServerHooks = {}): Promise<Ga
         }
         hooks.onMatchEnd?.(result);
         const winnerSession = result.winner === 0 ? p0 : p1;
+        const loserSession = result.winner === 0 ? p1 : p0;
+        if (pids[0] !== pids[1]) {
+          const won = result.winner === 0 ? pids[0] : pids[1];
+          const lost = result.winner === 0 ? pids[1] : pids[0];
+          const rec = players.record(won, lost, tier, rated);
+          if (rec) {
+            send(winnerSession.ws, { t: "rating", won: true, delta: rec.winner, rating: rec.ratings[0], ranked: rated });
+            send(loserSession.ws, { t: "rating", won: false, delta: rec.loser, rating: rec.ratings[1], ranked: rated });
+          }
+        }
         if (bankMatchId && p0.address && p1.address) {
           const winner = winnerSession.address!;
           const settled = issueResult(bankMatchId, winner, [p0.address, p1.address], result.reason);
@@ -231,6 +268,7 @@ export function startServer(config: Config, hooks: ServerHooks = {}): Promise<Ga
       },
       { shotClockMs: config.shotClockMs, graceMs: config.graceMs, maxTimeouts: config.maxTimeouts, seed: randomInt(2 ** 32) },
       ctx?.tournament,
+      { players: [{ pid: pids[0], rating: players.rating(pids[0]) }, { pid: pids[1], rating: players.rating(pids[1]) }], ranked: rated },
     );
     seats.forEach((s, i) => {
       s.room = room;
@@ -255,7 +293,7 @@ export function startServer(config: Config, hooks: ServerHooks = {}): Promise<Ga
   };
 
   /** Lock both stakes in one transaction, then start the game. */
-  const startStaked = async (a: Session, b: Session, tier: string, ctx?: MatchCtx) => {
+  const startStaked = async (a: Session, b: Session, tier: string, ctx?: MatchCtx, ranked = true) => {
     const authA = a.auth, authB = b.auth;
     a.queuedTier = b.queuedTier = null;
     a.starting = b.starting = true;
@@ -265,7 +303,7 @@ export function startServer(config: Config, hooks: ServerHooks = {}): Promise<Ga
       if (!chain || !a.address || !b.address || !authA || !authB) throw new Error("missing authorization");
       const salt = "0x" + randomBytes(32).toString("hex");
       const { matchId } = await chain.startMatch({ playerA: a.address, playerB: b.address, stake: chain.stakeWei(tier), salt, authA, authB });
-      startMatch(a, b, tier, matchId, ctx);
+      startMatch(a, b, tier, matchId, ctx, ranked);
     } catch (e) {
       console.error("startMatch failed:", e instanceof Error ? e.message : e);
       for (const s of [a, b]) {
@@ -423,6 +461,72 @@ export function startServer(config: Config, hooks: ServerHooks = {}): Promise<Ga
     startTournament(venue, picked);
   };
 
+  // ------------------------------------------------------------------ private rooms
+
+  const PRIVATE_TTL_MS = 15 * 60_000;
+  const privView = (pr: PrivateRoom, you: "host" | "guest"): ServerMessage => ({
+    t: "private_state", code: pr.code, stake: pr.stake, host: pr.host.name, guest: pr.guest?.name ?? null, you,
+  });
+  const pushPrivate = (pr: PrivateRoom) => {
+    send(pr.host.ws, privView(pr, "host"));
+    if (pr.guest) send(pr.guest.ws, privView(pr, "guest"));
+  };
+  const closePrivate = (pr: PrivateRoom, reason: string, notify: Session[] = [pr.host, ...(pr.guest ? [pr.guest] : [])]) => {
+    clearTimeout(pr.expiry);
+    privates.delete(pr.code);
+    for (const p of [pr.host, pr.guest]) if (p?.priv === pr) p.priv = null;
+    for (const p of notify) send(p.ws, { t: "private_closed", reason });
+  };
+  /** The host leaving closes the room; a guest leaving just frees the seat. */
+  const leavePrivate = (s: Session, reason = "") => {
+    const pr = s.priv;
+    if (!pr) return;
+    if (pr.host === s) return closePrivate(pr, reason || "The host closed the room.");
+    pr.guest = null;
+    s.priv = null;
+    pushPrivate(pr);
+  };
+  const newCode = () => {
+    for (;;) {
+      let c = "";
+      for (let i = 0; i < PRIVATE_CODE_LEN; i++) c += PRIVATE_CODE_ALPHABET[randomInt(PRIVATE_CODE_ALPHABET.length)];
+      if (!privates.has(c)) return c;
+    }
+  };
+
+  /** Checks a player can put `stake` up, then calls `ok`. Free servers have no funds to check. */
+  const withFunds = (s: Session, ws: Conn, stake: string, ok: () => void) => {
+    if (!chain) return ok();
+    const wei = chain.stakeWei(stake);
+    if (!s.auth || s.auth.maxStake < wei || s.auth.expiry * 1000 < Date.now() + 60_000) {
+      send(ws, { t: "error", message: "Approve play with your wallet first (one signature, no gas)." });
+      return void sendBankroll(s, true);
+    }
+    s.checking = true;
+    chain
+      .getBankroll(s.address!)
+      .then((b) => {
+        if (b.inMatch) throw new Error("You're already in a running match.");
+        if (b.balance < wei) throw new Error(`Your balance is below the ${stake} ETH stake. Add funds first.`);
+        if (s.queuedTier || s.room || s.starting || s.tVenue || s.tournament || s.priv || s.ws !== ws) return;
+        ok();
+      })
+      .catch((e: Error) => send(ws, { t: "error", message: e.message.length < 120 ? e.message : "Couldn't check your balance." }))
+      .finally(() => (s.checking = false));
+  };
+
+  const busy = (s: Session) => s.room || s.starting || s.queuedTier || s.checking || s.tVenue || s.tournament || s.priv;
+
+  const startPrivate = (pr: PrivateRoom) => {
+    const { host, guest } = pr;
+    if (!guest) return;
+    clearTimeout(pr.expiry);
+    privates.delete(pr.code);
+    host.priv = guest.priv = null;
+    if (chain) void startStaked(host, guest, pr.stake, undefined, false);
+    else startMatch(host, guest, pr.stake, undefined, undefined, false);
+  };
+
   // ------------------------------------------------------------------ connections
 
   const rateTimer = setInterval(() => {
@@ -452,7 +556,7 @@ export function startServer(config: Config, hooks: ServerHooks = {}): Promise<Ga
 
       if (msg.t === "hello") {
         if (ws.session) return send(ws, { t: "error", message: "already said hello" });
-        return onHello(ws, msg.name, msg.token);
+        return onHello(ws, msg.name, msg.token, msg.guest);
       }
       const s = ws.session;
       if (!s) return send(ws, { t: "error", message: "send hello first" });
@@ -475,9 +579,11 @@ export function startServer(config: Config, hooks: ServerHooks = {}): Promise<Ga
             .then((signer) => {
               if (signer.toLowerCase() !== msg.address.toLowerCase()) throw new Error("signature mismatch");
               s.address = signer;
+              s.key = walletKey(signer);
+              s.pid = players.touch(s.key, s.name);
               const known = authsByAddress.get(signer.toLowerCase());
               if (known) s.auth = known;
-              send(ws, { t: "authed", address: signer });
+              send(ws, { t: "authed", address: signer, pid: s.pid });
               for (const r of store.forAddress(signer)) void trySettle(r, true);
               return sendBankroll(s, true);
             })
@@ -505,7 +611,7 @@ export function startServer(config: Config, hooks: ServerHooks = {}): Promise<Ga
           return void sendBankroll(s);
         case "queue": {
           if (s.room || s.starting) return send(ws, { t: "error", message: "already in a match" });
-          if (s.queuedTier || s.checking || s.tVenue || s.tournament) return send(ws, { t: "error", message: "already queued" });
+          if (s.queuedTier || s.checking || s.tVenue || s.tournament || s.priv) return send(ws, { t: "error", message: "already queued" });
           if (chain && !s.address) return send(ws, { t: "error", message: "connect your wallet first" });
           const q = queues.get(msg.tier);
           if (!q) return send(ws, { t: "error", message: "unknown stake tier" });
@@ -537,7 +643,7 @@ export function startServer(config: Config, hooks: ServerHooks = {}): Promise<Ga
         }
         case "tournament_join": {
           if (s.room || s.starting) return send(ws, { t: "error", message: "already in a match" });
-          if (s.queuedTier || s.checking || s.tVenue || s.tournament) return send(ws, { t: "error", message: "already queued" });
+          if (s.queuedTier || s.checking || s.tVenue || s.tournament || s.priv) return send(ws, { t: "error", message: "already queued" });
           const venue = venues.find((v) => v.id === msg.venue);
           if (!venue) return send(ws, { t: "error", message: "unknown venue" });
           if (chain && !s.address) return send(ws, { t: "error", message: "connect your wallet first" });
@@ -573,6 +679,50 @@ export function startServer(config: Config, hooks: ServerHooks = {}): Promise<Ga
           if (s.tournament) return send(ws, { t: "error", message: "The bracket is already drawn." });
           tDequeue(s);
           return send(ws, { t: "tournament_left" });
+        case "leaderboard": {
+          const mine = players.row(s.pid);
+          const me = mine && mine.played > 0 ? mine : null;
+          return send(ws, { t: "leaderboard", entries: players.leaderboard(), me, myRank: me ? players.rankOf(s.pid) : null });
+        }
+        case "profile":
+          return send(ws, { t: "profile", pid: msg.pid, profile: players.profile(msg.pid, s.pid) });
+        case "private_create": {
+          if (busy(s)) return send(ws, { t: "error", message: "Finish what you're doing first." });
+          if (chain && !s.address) return send(ws, { t: "error", message: "connect your wallet first" });
+          let ok = false;
+          try { ok = parseEther(msg.stake) >= parseEther(PRIVATE_MIN_STAKE) && parseEther(msg.stake) <= parseEther(privateMax); } catch { /* invalid */ }
+          if (!ok) return send(ws, { t: "error", message: `Pick a stake between ${PRIVATE_MIN_STAKE} and ${privateMax} ETH.` });
+          const stake = formatEther(parseEther(msg.stake));
+          withFunds(s, ws, stake, () => {
+            const code = newCode();
+            const pr: PrivateRoom = { code, stake, host: s, guest: null, expiry: setTimeout(() => closePrivate(pr, "The room timed out."), PRIVATE_TTL_MS) };
+            pr.expiry.unref?.();
+            privates.set(code, pr);
+            s.priv = pr;
+            pushPrivate(pr);
+          });
+          return;
+        }
+        case "private_join": {
+          const pr = privates.get(msg.code);
+          if (pr && pr.host === s) return send(ws, { t: "error", message: "You can't join your own room." });
+          if (busy(s)) return send(ws, { t: "error", message: "Finish what you're doing first." });
+          if (!pr || pr.guest) return send(ws, { t: "error", message: pr ? "That room is already full." : "No room with that code. Check it and try again." });
+          if (pr.host === s || (chain && s.address && pr.host.address && sameAddress(s.address, pr.host.address))) {
+            return send(ws, { t: "error", message: "You can't join your own room." });
+          }
+          if (chain && !s.address) return send(ws, { t: "error", message: "connect your wallet first" });
+          withFunds(s, ws, pr.stake, () => {
+            if (privates.get(pr.code) !== pr || pr.guest) return send(ws, { t: "error", message: "That room just closed." });
+            pr.guest = s;
+            s.priv = pr;
+            pushPrivate(pr);
+            startPrivate(pr);
+          });
+          return;
+        }
+        case "private_cancel":
+          return leavePrivate(s, "");
         case "leave_queue":
           dequeue(s);
           return send(ws, { t: "queue_left" });
@@ -594,6 +744,7 @@ export function startServer(config: Config, hooks: ServerHooks = {}): Promise<Ga
       s.ws = null;
       dequeue(s);
       tDequeue(s);
+      leavePrivate(s, "The host left.");
       if (s.room) s.room.setConnected(s.seat, false);
       else if (!s.starting && !s.tournament) sessions.delete(s.token);
     });
@@ -602,11 +753,11 @@ export function startServer(config: Config, hooks: ServerHooks = {}): Promise<Ga
   function welcome(ws: Conn, s: Session, resumed: boolean) {
     send(ws, {
       t: "welcome", token: s.token, name: s.name, tiers: config.tiers, venues, resumed,
-      chain: chain?.info, address: s.address ?? undefined,
+      chain: chain?.info, address: s.address ?? undefined, pid: s.pid,
     });
   }
 
-  function onHello(ws: Conn, rawName: string | undefined, token: string | undefined) {
+  function onHello(ws: Conn, rawName: string | undefined, token: string | undefined, guest: string | undefined) {
     const existing = token ? sessions.get(token) : undefined;
     if (existing && (existing.room || existing.starting || existing.tournament)) {
       // Reconnect into a running match, one whose stakes are being locked, or a bracket between rounds.
@@ -626,7 +777,9 @@ export function startServer(config: Config, hooks: ServerHooks = {}): Promise<Ga
       return;
     }
     const name = (rawName ?? "").replace(/[^\w .-]/g, "").trim().slice(0, 20) || `Player-${randomBytes(2).toString("hex")}`;
-    const s: Session = { token: randomUUID(), name, address: null, pendingAuth: null, ws, room: null, starting: false, checking: false, auth: null, seat: 0, queuedTier: null, tVenue: null, tournament: null };
+    const tok = randomUUID();
+    const key = guestKey(guest ?? tok);
+    const s: Session = { token: tok, key, pid: players.touch(key, name), priv: null, name, address: null, pendingAuth: null, ws, room: null, starting: false, checking: false, auth: null, seat: 0, queuedTier: null, tVenue: null, tournament: null };
     sessions.set(s.token, s);
     ws.session = s;
     welcome(ws, s, false);
@@ -644,6 +797,8 @@ export function startServer(config: Config, hooks: ServerHooks = {}): Promise<Ga
             clearInterval(heartbeat);
             clearInterval(retryTimer);
             for (const r of rooms.values()) r.dispose();
+            for (const pr of privates.values()) clearTimeout(pr.expiry);
+            players.flush();
             tournaments.clear();
             for (const ws of wss.clients) ws.terminate();
             wss.close(() => http.close(() => done()));

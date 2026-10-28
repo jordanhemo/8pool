@@ -10,6 +10,8 @@ export interface Config {
   venues?: Venue[];
   /** How often to re-check that finalists' semifinal stakes were released on-chain. */
   tournamentPollMs?: number;
+  /** Highest stake (ETH) a private room may use. Players' play authorizations are sized to cover it. */
+  privateMaxStake?: string;
   shotClockMs: number;
   graceMs: number;
   /** Consecutive shot-clock timeouts before a player forfeits. */
@@ -26,6 +28,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   return {
     port: num(env.PORT, 8080),
     tiers: (env.TIERS ?? "0.001,0.01").split(",").map((s) => s.trim()).filter(Boolean),
+    privateMaxStake: env.PRIVATE_MAX_STAKE || undefined,
     shotClockMs: num(env.SHOT_CLOCK_MS, 45_000),
     graceMs: num(env.GRACE_MS, 60_000),
     maxTimeouts: num(env.MAX_TIMEOUTS, 3),

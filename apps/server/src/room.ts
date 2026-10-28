@@ -46,6 +46,7 @@ export class Room {
     private onEnd: (r: RoomResult) => void,
     private opts: RoomOptions,
     private tournament?: { id: string; round: TournamentRound },
+    private extra?: Pick<Extract<ServerMessage, { t: "match_start" }>, "players" | "ranked">,
   ) {
     this.game = newGame(opts.seed);
   }
@@ -161,6 +162,7 @@ export class Room {
       state: this.game,
       resumed,
       tournament: this.tournament,
+      ...this.extra,
     });
   }
 

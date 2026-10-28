@@ -283,3 +283,115 @@ describe("tournaments", () => {
     expect(st.semiWinners.some((x) => x === st.you)).toBe(true);
   });
 });
+
+describe("ranking and leaderboard", () => {
+  it("rates a finished match and lists both players", async () => {
+    const { a, b, sa } = await pairUp();
+    const loser = sa.seat === 0 ? a : b; // seat 0 resigns
+    const winner = loser === a ? b : a;
+    loser.c.send({ t: "resign" });
+    const [w, l] = await Promise.all([winner.c.next("rating"), loser.c.next("rating")]);
+    expect(w).toMatchObject({ won: true, ranked: true });
+    expect(w.delta).toBeGreaterThan(0);
+    expect(l.delta).toBeLessThan(0);
+    expect(w.rating).toBeGreaterThan(1000);
+    expect(l.rating).toBeLessThan(1000);
+
+    winner.c.send({ t: "leaderboard" });
+    const lb = await winner.c.next("leaderboard");
+    expect(lb.entries.map((e) => e.name)).toEqual([winner.welcome.name, loser.welcome.name]);
+    expect(lb.entries[0]).toMatchObject({ played: 1, won: 1, lost: 0 });
+    expect(lb.myRank).toBe(1);
+    expect(JSON.stringify(lb)).not.toContain(winner.welcome.token);
+  });
+
+  it("returns a profile with head-to-head and recent matches", async () => {
+    const { a, b, sa } = await pairUp();
+    const loser = sa.seat === 0 ? a : b;
+    const winner = loser === a ? b : a;
+    loser.c.send({ t: "resign" });
+    await loser.c.next("rating");
+    loser.c.send({ t: "profile", pid: winner.welcome.pid! });
+    const p = (await loser.c.next("profile")).profile!;
+    expect(p).toMatchObject({ name: winner.welcome.name, won: 1, rank: 1, vsYou: { won: 0, lost: 1 } });
+    expect(p.recent[0]).toMatchObject({ opp: loser.welcome.name, won: true });
+    loser.c.send({ t: "profile", pid: "0123456789ab" });
+    expect((await loser.c.next("profile")).profile).toBeNull();
+  });
+
+  it("does not list players who haven't finished a match", async () => {
+    const a = await connect("Ann");
+    a.c.send({ t: "leaderboard" });
+    const lb = await a.c.next("leaderboard");
+    expect(lb.entries).toEqual([]);
+    expect(lb.me).toBeNull();
+  });
+});
+
+describe("private rooms", () => {
+  it("lets a friend join by code and plays an unrated match at the host's stake", async () => {
+    const a = await connect("Ann");
+    const b = await connect("Bob");
+    a.c.send({ t: "private_create", stake: "0.02" });
+    const room = await a.c.next("private_state");
+    expect(room).toMatchObject({ stake: "0.02", host: "Ann", guest: null, you: "host" });
+    expect(room.code).toMatch(/^[A-Z2-9]{5}$/);
+
+    b.c.send({ t: "private_join", code: room.code.toLowerCase() });
+    const [sa, sb] = await Promise.all([a.c.next("match_start"), b.c.next("match_start")]);
+    expect(sa.matchId).toBe(sb.matchId);
+    expect(sa.tier).toBe("0.02");
+    expect(sa.ranked).toBe(false);
+
+    (sa.seat === 0 ? a : b).c.send({ t: "resign" });
+    const r = await a.c.next("rating");
+    expect(r).toMatchObject({ ranked: false, delta: 0 });
+    a.c.send({ t: "leaderboard" });
+    expect((await a.c.next("leaderboard")).entries).toEqual([]); // friendlies never reach the ladder
+    expect(results[0].tier).toBe("0.02");
+  });
+
+  it("rejects bad codes, bad stakes, your own room and a second guest", async () => {
+    const a = await connect("Ann");
+    const b = await connect("Bob");
+    const c = await connect("Cy");
+    a.c.send({ t: "private_create", stake: "5" });
+    expect((await a.c.next("error")).message).toMatch(/between/);
+    b.c.send({ t: "private_join", code: "ZZZZZ" });
+    expect((await b.c.next("error")).message).toMatch(/No room/);
+
+    a.c.send({ t: "private_create", stake: "0.01" });
+    const room = await a.c.next("private_state");
+    a.c.send({ t: "private_join", code: room.code });
+    expect((await a.c.next("error")).message).toMatch(/own room/);
+    a.c.send({ t: "queue", tier: "0.01" });
+    expect((await a.c.next("error")).message).toMatch(/queued/);
+
+    b.c.send({ t: "private_join", code: room.code });
+    await b.c.next("match_start");
+    c.c.send({ t: "private_join", code: room.code });
+    expect((await c.c.next("error")).message).toMatch(/No room|full/);
+  });
+
+  it("closes the room for the guest when the host cancels", async () => {
+    const a = await connect("Ann");
+    a.c.send({ t: "private_create", stake: "0.01" });
+    const room = await a.c.next("private_state");
+    a.c.send({ t: "private_cancel" });
+    await a.c.next("private_closed");
+    const b = await connect("Bob");
+    b.c.send({ t: "private_join", code: room.code });
+    expect((await b.c.next("error")).message).toMatch(/No room/);
+  });
+
+  it("closes the room when the host disconnects", async () => {
+    const a = await connect("Ann");
+    a.c.send({ t: "private_create", stake: "0.01" });
+    const room = await a.c.next("private_state");
+    a.c.close();
+    await new Promise((r) => setTimeout(r, 80));
+    const b = await connect("Bob");
+    b.c.send({ t: "private_join", code: room.code });
+    expect((await b.c.next("error")).message).toMatch(/No room/);
+  });
+});

@@ -2,6 +2,7 @@ import { formatEther, parseEther } from "viem";
 import { TOURNAMENT_SIZE, type TournamentView, type Venue } from "@8pool/shared";
 import { sfx, unlockAudio } from "./audio";
 import { ROOMS, RoomId } from "./game3d/rooms";
+import { rankName } from "./rankui";
 
 export interface LobbyHandlers {
   onQueue(tier: string): void;
@@ -63,6 +64,7 @@ export class Lobby {
   private tLobby: { venue: string; joined: number; size: number } | null = null;
   private tournament: TournamentView | null = null;
   private error = "";
+  private rating: number | null = null;
   private chainMode = false;
   private address: string | null = null;
   private busy = false; // stakes are being locked
@@ -130,6 +132,8 @@ export class Lobby {
   setBankroll(b: { balance: bigint; authorized: boolean; inMatch: boolean } | null): void { this.bank = b; this.error = ""; this.render(); }
   setTournamentLobby(l: { venue: string; joined: number; size: number } | null): void { this.tLobby = l; this.error = ""; this.render(); }
   setTournament(v: TournamentView | null): void { this.tournament = v; this.render(); }
+  /** The player's rating once they have a ranked record; shown under their name. */
+  setRating(r: number | null): void { this.rating = r; this.render(); }
 
   private render(): void {
     const bank = this.bank;
@@ -214,7 +218,7 @@ export class Lobby {
     this.walletOff.hidden = this.chainMode;
     this.topConnect.hidden = !this.chainMode || this.address !== null;
     this.topAdd.hidden = !this.chainMode || this.address === null;
-    this.chipSub.textContent = this.address ? `${this.address.slice(0, 6)}…${this.address.slice(-4)}` : this.chainMode ? "Wallet not connected" : "Guest";
+    this.chipSub.textContent = this.rating !== null ? `${rankName(this.rating)} · ${this.rating}` : this.address ? `${this.address.slice(0, 6)}…${this.address.slice(-4)}` : this.chainMode ? "Wallet not connected" : "Guest";
     this.balanceTop.textContent = !this.chainMode ? "Free play" : this.bank ? `${Number(formatEther(this.bank.balance)).toFixed(4)} ETH` : this.address ? "…" : "—";
     this.connectBtn.hidden = this.address !== null;
     this.walletLabel.textContent = this.address ? `${this.address.slice(0, 6)}…${this.address.slice(-4)}` : "";
