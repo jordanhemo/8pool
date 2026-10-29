@@ -3,6 +3,8 @@ import { TOURNAMENT_SIZE, type TournamentView, type Venue } from "@8pool/shared"
 import { sfx, unlockAudio } from "./audio";
 import { ROOMS, RoomId } from "./game3d/rooms";
 import { rankName } from "./rankui";
+import { approx, ethPrice, usd, usdToEth } from "./usd";
+import { cardPurchaseEnabled } from "./onramp";
 
 export interface LobbyHandlers {
   onQueue(tier: string): void;
@@ -15,6 +17,8 @@ export interface LobbyHandlers {
   onTournamentJoin(venue: string): void;
   onTournamentLeave(): void;
   onTournamentClose(): void;
+  /** Open the card checkout for this many US dollars. */
+  onBuyWithCard(dollars: number): void;
 }
 
 /** Re-render a container while keeping keyboard focus on the same logical item. */
@@ -47,6 +51,11 @@ export class Lobby {
   private chipName = this.el.querySelector<HTMLElement>("#chipName")!;
   private chipSub = this.el.querySelector<HTMLElement>("#chipSub")!;
   private balanceTop = this.el.querySelector<HTMLElement>("#balanceTop")!;
+  private balanceSub = this.el.querySelector<HTMLElement>("#balanceSub")!;
+  private amountUsd = this.el.querySelector<HTMLElement>("#amountUsd")!;
+  private cardUsd = this.el.querySelector<HTMLInputElement>("#cardUsd")!;
+  private cardHint = this.el.querySelector<HTMLElement>("#cardHint")!;
+  private buyCardBtn = this.el.querySelector<HTMLButtonElement>("#buyCard")!;
   private topAdd = this.el.querySelector<HTMLElement>("#topAdd")!;
   private walletOff = this.el.querySelector<HTMLElement>("#walletOff")!;
   private practiceBtn = this.el.querySelector<HTMLButtonElement>("#practice")!;
@@ -81,6 +90,9 @@ export class Lobby {
     this.addBtn.onclick = () => handlers.onAddFunds(this.amountInput.value.trim());
     this.withdrawBtn.onclick = () => handlers.onWithdraw();
     this.tLeaveBtn.onclick = () => handlers.onTournamentLeave();
+    this.amountInput.addEventListener("input", () => this.renderUsd());
+    this.cardUsd.addEventListener("input", () => this.renderUsd());
+    this.buyCardBtn.onclick = () => handlers.onBuyWithCard(Number(this.cardUsd.value.replace(/[^\d.]/g, "")));
     this.tiersEl.addEventListener("click", (e) => {
       const tier = (e.target as HTMLElement).closest<HTMLElement>("[data-tier]")?.dataset.tier;
       if (tier) {
@@ -133,6 +145,8 @@ export class Lobby {
   setTournamentLobby(l: { venue: string; joined: number; size: number } | null): void { this.tLobby = l; this.error = ""; this.render(); }
   setTournament(v: TournamentView | null): void { this.tournament = v; this.render(); }
   /** The player's rating once they have a ranked record; shown under their name. */
+  /** The ETH/USD price loaded or changed. */
+  refreshPrices(): void { this.render(); }
   setRating(r: number | null): void { this.rating = r; this.render(); }
 
   private render(): void {
@@ -150,10 +164,10 @@ export class Lobby {
           const info = document.createElement("span");
           const stake = document.createElement("span");
           stake.className = "stake";
-          stake.textContent = this.chainMode ? `${t} ETH` : `${t} table`;
+          stake.textContent = this.chainMode ? `${t} ETH${usd(t) ? ` · ${usd(t)}` : ""}` : `${t} table`;
           const sub = document.createElement("small");
           sub.className = "pot-line";
-          sub.textContent = this.chainMode ? `Winner takes ${this.potOf(t)} ETH` : "Ranked match";
+          sub.textContent = this.chainMode ? `Winner takes ${this.potOf(t)} ETH${approx(this.potOf(t))}` : "Ranked match";
           info.append(stake, sub);
           const go = document.createElement("span");
           go.className = "go";
@@ -186,9 +200,9 @@ export class Lobby {
             `<span class="venue-text"><strong></strong><small></small></span>` +
             `<span class="venue-pot"><b></b><small>POT</small></span>`;
           b.querySelector("strong")!.textContent = v.name;
-          b.querySelector(".venue-text small")!.textContent = this.chainMode ? `Buy-in ${v.buyIn} ETH` : "Free entry";
+          b.querySelector(".venue-text small")!.textContent = this.chainMode ? `Buy-in ${v.buyIn} ETH${approx(v.buyIn)}` : "Free entry";
           b.querySelector(".venue-pot small")!.textContent = this.chainMode ? "POT" : "KNOCKOUT";
-          b.querySelector(".venue-pot b")!.textContent = this.chainMode ? `${this.tournamentPot(v.buyIn)} ETH` : `${TOURNAMENT_SIZE} players`;
+          b.querySelector(".venue-pot b")!.textContent = this.chainMode ? `${usd(this.tournamentPot(v.buyIn)) || `${this.tournamentPot(v.buyIn)} ETH`}` : `${TOURNAMENT_SIZE} players`;
           b.disabled = !tCanJoin || !funded(v.buyIn);
           return b;
         }),
@@ -220,11 +234,13 @@ export class Lobby {
     this.topAdd.hidden = !this.chainMode || this.address === null;
     this.chipSub.textContent = this.rating !== null ? `${rankName(this.rating)} · ${this.rating}` : this.address ? `${this.address.slice(0, 6)}…${this.address.slice(-4)}` : this.chainMode ? "Wallet not connected" : "Guest";
     this.balanceTop.textContent = !this.chainMode ? "Free play" : this.bank ? `${Number(formatEther(this.bank.balance)).toFixed(4)} ETH` : this.address ? "…" : "—";
+    this.balanceSub.textContent = this.chainMode && this.bank && usd(this.bank.balance) ? `Balance · ≈ ${usd(this.bank.balance)}` : "Balance";
+    this.renderUsd();
     this.connectBtn.hidden = this.address !== null;
     this.walletLabel.textContent = this.address ? `${this.address.slice(0, 6)}…${this.address.slice(-4)}` : "";
     this.bankRow.hidden = !(this.chainMode && this.address);
     if (bank) {
-      this.balanceEl.replaceChildren(document.createTextNode(`Balance: ${formatEther(bank.balance)} ETH`));
+      this.balanceEl.replaceChildren(document.createTextNode(`Balance: ${formatEther(bank.balance)} ETH${approx(bank.balance)}`));
       const note = document.createElement("small");
       note.textContent = bank.inMatch ? "A stake is locked in a running match." : bank.authorized ? "Ready: no wallet popups while you play." : "Approve play to start (one signature).";
       this.balanceEl.append(note);
@@ -244,6 +260,19 @@ export class Lobby {
             : this.chainMode && bank && cheapest && bank.balance < parseEther(cheapest) && !bank.inMatch
               ? "Add funds to your balance to play."
               : "";
+  }
+
+  private renderUsd(): void {
+    const amt = this.amountInput.value.trim();
+    this.amountUsd.textContent = usd(amt) ? `${amt} ETH ≈ ${usd(amt)}` : "";
+    const dollars = Number(this.cardUsd.value.replace(/[^\d.]/g, ""));
+    const eth = usdToEth(dollars);
+    this.cardHint.textContent = !cardPurchaseEnabled()
+      ? "Card payments aren't enabled yet."
+      : eth
+        ? `About ${eth} ETH at $${Math.round(ethPrice()!).toLocaleString("en-US")}/ETH, sent to your wallet. Then tap Add funds.`
+        : "Pay with a card; the ETH is sent to your wallet. Then tap Add funds.";
+    this.buyCardBtn.disabled = !(dollars > 0);
   }
 
   /** True while the player is still alive in a bracket that hasn't finished. */

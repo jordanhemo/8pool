@@ -14,6 +14,7 @@ cd apps/client
 npx vercel login
 npx vercel link
 npx vercel env add VITE_SERVER_URL production    # wss://<service>.onrender.com
+npx vercel env add VITE_TRANSAK_API_KEY production   # optional: enables "Buy ETH with card" (public key from transak.com)
 npx vercel --prod
 ```
 

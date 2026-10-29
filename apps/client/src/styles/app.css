@@ -776,3 +776,7 @@ kbd {
   .rec { grid-template-columns: 22px minmax(0, 1fr) auto; } .rec small { display: none; }
   .prank b { display: none; }
 }
+
+.usd-hint { display: block; color: var(--muted); font-size: 14px; font-weight: 600; }
+.usd-hint:empty { display: none; }
+.card-buy { display: grid; gap: 8px; margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--line); }

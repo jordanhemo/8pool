@@ -2,6 +2,7 @@ import { formatEther, parseEther } from "viem";
 import { PRIVATE_CODE_LEN, PRIVATE_MAX_STAKE, PRIVATE_MIN_STAKE, isStakeString, normalizeCode, type ServerMessage } from "@8pool/shared";
 import { sfx, unlockAudio } from "./audio";
 import { esc } from "./rankui";
+import { approx } from "./usd";
 
 export interface PrivateHandlers {
   onCreate(stake: string): void;
@@ -56,6 +57,7 @@ export class PrivateRoomUI {
     this.render();
   }
 
+  refreshPrices(): void { this.render(); }
   setChainMode(on: boolean): void { this.chainMode = on; this.render(); }
   setConnected(c: boolean): void { this.connected = c; this.render(); }
   setState(s: State | null): void { this.state = s; this.render(); }
@@ -99,7 +101,7 @@ export class PrivateRoomUI {
     this.hint.textContent = !this.chainMode
       ? "Free play. Share the code and your friend can join straight away."
       : s
-        ? `You each put up ${s} ETH. The winner takes ${formatEther(parseEther(s) * 2n)} ETH.`
+        ? `You each put up ${s} ETH${approx(s)}. The winner takes ${formatEther(parseEther(s) * 2n)} ETH${approx(formatEther(parseEther(s) * 2n))}.`
         : `Pick a stake from ${PRIVATE_MIN_STAKE} to ${this.max} ETH.`;
     this.createBtn.disabled = !this.connected || (this.chainMode && !s);
     this.presets.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.textContent === this.stakeInput.value.trim()));
@@ -115,7 +117,7 @@ export class PrivateRoomUI {
     if (!s) return;
     document.getElementById("pvCode")!.blur?.();
     document.getElementById("pvCodeTiles")!.innerHTML = [...s.code].map((c) => `<i>${esc(c)}</i>`).join("");
-    document.getElementById("pvStakeLine")!.textContent = this.chainMode ? `Stake: ${s.stake} ETH each · winner takes ${formatEther(parseEther(s.stake) * 2n)} ETH` : "Free play · friendly match";
+    document.getElementById("pvStakeLine")!.textContent = this.chainMode ? `Stake: ${s.stake} ETH${approx(s.stake)} each · winner takes ${formatEther(parseEther(s.stake) * 2n)} ETH` : "Free play · friendly match";
     const status = document.getElementById("pvStatus")!;
     status.innerHTML = s.guest
       ? `<strong>${esc(s.guest)} joined</strong><span>Starting the match…</span>`

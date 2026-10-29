@@ -12,6 +12,8 @@ import { PrivateRoomUI } from "./privateRoom";
 import { prefs } from "./settings";
 import { Net } from "./net";
 import { Toast } from "./toast";
+import { startPriceFeed, onPrice, approx } from "./usd";
+import { buyWithCard } from "./onramp";
 import { NoWalletError, Wallet, friendlyError, isMobileBrowser, walletApps } from "./wallet";
 
 // Dev-only stand-in wallet for browser testing (?devwallet=1|2). Dead code in production builds.
@@ -225,6 +227,16 @@ const lobby = new Lobby(
     onConnectWallet: () => void connectWallet(),
     onAddFunds: (amount) => void addFunds(amount),
     onWithdraw: () => void withdrawAll(),
+    onBuyWithCard: (dollars) => {
+      try {
+        if (!address || !chainInfo) throw new Error("Connect your wallet first.");
+        if (!(dollars >= 5)) throw new Error("Enter at least $5.");
+        buyWithCard(address, chainInfo, dollars);
+        toast.show("Finish the purchase in the new tab. When the ETH reaches your wallet, tap Add funds.", [{ label: "OK", run: () => toast.hide() }]);
+      } catch (e) {
+        toast.show(friendlyError(e), [{ label: "OK", run: () => toast.hide() }]);
+      }
+    },
     onTournamentJoin: (venue) => net.send({ t: "tournament_join", venue }),
     onTournamentLeave: () => net.send({ t: "tournament_leave" }),
     onTournamentClose: () => {
@@ -247,6 +259,8 @@ const priv = new PrivateRoomUI({
   onCancel: () => net.send({ t: "private_cancel" }),
   onError: (msg) => lobby.setError(msg),
 });
+
+if (import.meta.env.DEV) Object.assign(window, { __lobby: lobby });
 
 const menu = new Menu({
   getRoom: () => stage.roomId,
@@ -361,10 +375,12 @@ net.subscribe((m) => {
         if (round && tview) applyRoom(tview.venue as RoomId, false); // tournaments are played in their venue
         const pot = round
           ? `${venue?.name ?? "Tournament"} · ${round === "final" ? "Final" : "Semifinal"}`
-          : chainInfo ? `Pot ${formatEther(currentStake * 2n)} ETH` : undefined;
+          : chainInfo ? `Pot ${formatEther(currentStake * 2n)} ETH${approx(currentStake * 2n)}` : undefined;
         startScene({ mode: "online", net, start: m, pot, tournament: round, openProfile: (pid) => ladder.openProfile(pid) });
       }
       break;
   }
 });
+startPriceFeed();
+onPrice(() => { lobby.refreshPrices(); priv.refreshPrices(); });
 net.connect();
