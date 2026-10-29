@@ -728,7 +728,7 @@ export function startServer(config: Config, hooks: ServerHooks = {}): Promise<Ga
           return send(ws, { t: "queue_left" });
         case "shot":
           if (!s.room) return send(ws, { t: "error", message: "not in a match" });
-          return s.room.handleShot(s.seat, { angle: msg.angle, power: msg.power, spin: msg.spin, placement: msg.placement });
+          return s.room.handleShot(s.seat, { angle: msg.angle, power: msg.power, spin: msg.spin, jump: msg.jump, placement: msg.placement });
         case "resign":
           if (!s.room) return send(ws, { t: "error", message: "not in a match" });
           return s.room.resign(s.seat);

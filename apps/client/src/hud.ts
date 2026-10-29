@@ -10,6 +10,7 @@ export interface HudHandlers {
   onToggleView(): void;
   onReplay(): void;
   onSpin(x: number, y: number): void;
+  onJump(on: boolean): void;
   onEmote(id: EmoteId): void;
   /** Called after the player confirmed leaving or resigning. */
   onLeave(): void;
@@ -50,6 +51,7 @@ export class Hud {
   private spinEl = q(this.el, "#spin");
   private spinBall = q(this.el, ".spin-ball");
   private spinDot = q(this.el, "#spinDot");
+  private jumpBtn = q<HTMLButtonElement>(this.el, "#jumpBtn");
   private emoteBtn = q<HTMLButtonElement>(this.el, "#emoteBtn");
   private emoteList = q(this.el, "#emotes");
   private bubbles = Array.from(this.el.querySelectorAll<HTMLElement>(".bubble"));
@@ -76,6 +78,12 @@ export class Hud {
     this.resumeBtn.onclick = () => this.toggleSheet(false);
     this.viewBtn.onclick = () => { sfx.ui(); this.h?.onToggleView(); };
     this.initSpin();
+    this.jumpBtn.onclick = () => {
+      const on = !this.jumpBtn.classList.contains("on");
+      this.setJump(on);
+      sfx.ui();
+      this.h?.onJump(on);
+    };
     this.initEmotes();
     this.replayBtn.onclick = () => { sfx.ui(); this.h?.onReplay(); };
     this.cameraBtn.onclick = () => { sfx.ui(); this.h?.onToggleView(); };
@@ -252,6 +260,11 @@ export class Hud {
   setSpin(x: number, y: number): void {
     this.spinDot.style.left = `${50 + x * 39}%`;
     this.spinDot.style.top = `${50 - y * 39}%`;
+  }
+
+  setJump(on: boolean): void {
+    this.jumpBtn.classList.toggle("on", on);
+    this.jumpBtn.setAttribute("aria-pressed", String(on));
   }
 
   private initSpin(): void {

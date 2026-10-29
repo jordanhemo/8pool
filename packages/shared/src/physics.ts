@@ -1,6 +1,6 @@
 import {
   BALL_R, BALL_RESTITUTION, CUSHION_RESTITUTION, DT, FRAME_EVERY, FRICTION,
-  MAX_SPEED, MAX_STEPS, POCKETS, REST_SPEED, SPIN_FOLLOW, SPIN_RAIL, SPIN_RAIL_DECAY, TABLE_H, TABLE_W,
+  JUMP_SPEED, JUMP_STEPS, MAX_SPEED, MAX_STEPS, POCKETS, REST_SPEED, SPIN_FOLLOW, SPIN_RAIL, SPIN_RAIL_DECAY, TABLE_H, TABLE_W,
 } from "./constants";
 
 export interface Ball {
@@ -24,6 +24,8 @@ export interface Shot {
   angle: number; // radians
   power: number; // 0..1
   spin?: Spin;
+  /** Jump the cue ball over whatever is in its way. */
+  jump?: boolean;
 }
 
 /** Spin state of the cue ball while a shot plays out. */
@@ -49,6 +51,8 @@ export interface ShotResult {
   frames: number[][];
   /** Frame index at which each ball was pocketed. */
   pocketFrames: Record<number, number>;
+  /** Recorded frames the cue ball spends in the air (jump shots only). */
+  air?: number;
 }
 
 export const cloneBalls = (balls: Balls): Balls => balls.map((b) => ({ ...b }));
@@ -65,7 +69,7 @@ export function isAtRest(balls: Balls): boolean {
 }
 
 /** Advance the simulation by one fixed step. Mutates balls and events. */
-export function step(balls: Balls, ev: ShotEvents, pocketFrames?: Record<number, number>, frame = 0, spin?: CueSpin): void {
+export function step(balls: Balls, ev: ShotEvents, pocketFrames?: Record<number, number>, frame = 0, spin?: CueSpin, air?: { left: number }): void {
   const r = BALL_R;
 
   for (let id = 0; id < balls.length; id++) {
@@ -89,6 +93,7 @@ export function step(balls: Balls, ev: ShotEvents, pocketFrames?: Record<number,
 
     // Pockets are checked before cushions so balls near the mouth drop in.
     for (const p of POCKETS) {
+      if (id === 0 && air && air.left > 0) break;
       if (Math.hypot(b.x - p.x, b.y - p.y) < p.r) {
         b.pocketed = true;
         b.vx = b.vy = 0;
@@ -125,6 +130,7 @@ export function step(balls: Balls, ev: ShotEvents, pocketFrames?: Record<number,
   for (let i = 0; i < balls.length; i++) {
     const a = balls[i];
     if (a.pocketed) continue;
+    if (i === 0 && air && air.left > 0) continue; // airborne: nothing to collide with
     for (let j = i + 1; j < balls.length; j++) {
       const c = balls[j];
       if (c.pocketed) continue;
@@ -155,6 +161,7 @@ export function step(balls: Balls, ev: ShotEvents, pocketFrames?: Record<number,
       if (i === 0 && ev.firstContact === null) ev.firstContact = j;
     }
   }
+  if (air && air.left > 0) air.left--;
 }
 
 /** Simulate one shot to rest. Does not mutate `start`. */
@@ -171,19 +178,21 @@ export function simulateShot(start: Balls, shot: Shot): ShotResult {
   const balls = cloneBalls(start);
   const cue = balls[0];
   if (cue.pocketed) throw new Error("cue ball is pocketed");
-  cue.vx = Math.cos(shot.angle) * shot.power * MAX_SPEED;
-  cue.vy = Math.sin(shot.angle) * shot.power * MAX_SPEED;
+  const speed = shot.power * MAX_SPEED * (shot.jump ? JUMP_SPEED : 1);
+  cue.vx = Math.cos(shot.angle) * speed;
+  cue.vy = Math.sin(shot.angle) * speed;
+  const air = shot.jump ? { left: JUMP_STEPS } : undefined;
 
   const events: ShotEvents = { firstContact: null, pocketed: [], railBalls: [], railAfterContact: false };
   const frames: number[][] = [snapshot(balls)];
   const pocketFrames: Record<number, number> = {};
 
   for (let n = 1; n <= MAX_STEPS; n++) {
-    step(balls, events, pocketFrames, frames.length, spin);
+    step(balls, events, pocketFrames, frames.length, spin, air);
     if (n % FRAME_EVERY === 0) frames.push(snapshot(balls));
     if (isAtRest(balls)) break;
   }
   for (const b of balls) { b.vx = 0; b.vy = 0; }
   frames.push(snapshot(balls));
-  return { balls, events, frames, pocketFrames };
+  return { balls, events, frames, pocketFrames, air: air ? JUMP_STEPS / FRAME_EVERY : undefined };
 }

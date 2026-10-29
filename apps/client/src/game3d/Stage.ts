@@ -45,20 +45,46 @@ export interface Guide {
   c: Pt;
   e: Pt;
   ghost: boolean;
+  /** Jump shot: drawn in amber and never stops at balls. */
+  jump?: boolean;
   /** Object ball centre and the unit direction it will travel after impact. */
   obj?: { x: number; y: number; dx: number; dy: number };
   /** Cue ball direction after impact (unit) and a display length in mm. */
   defl?: { dx: number; dy: number; len: number };
 }
 
-/** A thin flat bar lying on the table, used for aim guides. */
+/** A flat strip lying on the table, used for aim guides. `dash` repeats a dash pattern; `fade` tapers to nothing. */
 class Beam {
   readonly mesh: THREE.Mesh;
-  constructor(parent: THREE.Object3D, color: number, opacity: number, width: number, private y = BR) {
-    this.mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(1, 0.0012, width),
-      new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false }),
-    );
+  private tex: THREE.CanvasTexture | null = null;
+  private period = 0;
+  constructor(parent: THREE.Object3D, private style: "solid" | "dash" | "fade", color: number, opacity: number, width: number, private y = BR, dashMm = 20) {
+    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false });
+    if (style !== "solid") {
+      const c = document.createElement("canvas");
+      c.width = 128;
+      c.height = 4;
+      const g = c.getContext("2d")!;
+      if (style === "dash") {
+        // Rounded dash filling the first 55% of each period; the rest stays clear.
+        g.fillStyle = "#fff";
+        g.beginPath();
+        g.roundRect(2, 0, 68, 4, 2);
+        g.fill();
+        this.period = dashMm * 1.8 * M;
+      } else {
+        const grad = g.createLinearGradient(0, 0, 128, 0);
+        grad.addColorStop(0, "rgba(255,255,255,1)");
+        grad.addColorStop(1, "rgba(255,255,255,0)");
+        g.fillStyle = grad;
+        g.fillRect(0, 0, 128, 4);
+      }
+      this.tex = new THREE.CanvasTexture(c);
+      this.tex.colorSpace = THREE.SRGBColorSpace;
+      this.tex.wrapS = style === "dash" ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
+      mat.map = this.tex;
+    }
+    this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, width).rotateX(-Math.PI / 2), mat);
     this.mesh.visible = false;
     this.mesh.renderOrder = 2;
     parent.add(this.mesh);
@@ -70,7 +96,9 @@ class Beam {
     this.mesh.position.set((x1 + x2) / 2, this.y, (z1 + z2) / 2);
     this.mesh.scale.x = len;
     this.mesh.rotation.y = -Math.atan2(z2 - z1, x2 - x1);
+    if (this.style === "dash" && this.tex) this.tex.repeat.x = len / this.period;
   }
+  color(c: number): void { (this.mesh.material as THREE.MeshBasicMaterial).color.set(c); }
   hide(): void { this.mesh.visible = false; }
 }
 
@@ -389,13 +417,13 @@ export class Stage {
 
   private buildGuides(): void {
     this.beams = {
-      main: new Beam(this.scene, 0xffffff, 0.9, 0.0048),
-      obj: new Beam(this.scene, 0xffe08a, 0.9, 0.0048),
-      defl: new Beam(this.scene, 0xffffff, 0.5, 0.0036),
-      head: new Beam(this.scene, 0xffd166, 0.55, 0.004, 0.003),
+      main: new Beam(this.scene, "dash", 0xffffff, 0.85, 0.0042),
+      obj: new Beam(this.scene, "fade", 0xffd166, 0.95, 0.0052),
+      defl: new Beam(this.scene, "fade", 0xffffff, 0.7, 0.0036),
+      head: new Beam(this.scene, "solid", 0xffd166, 0.55, 0.004, 0.003),
     };
     this.ring = new THREE.Mesh(
-      new THREE.RingGeometry(BR - 0.0028, BR, 40).rotateX(-Math.PI / 2),
+      new THREE.RingGeometry(BR - 0.0018, BR, 48).rotateX(-Math.PI / 2),
       new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthWrite: false }),
     );
     this.ring.visible = false;
@@ -411,7 +439,7 @@ export class Stage {
 
   // ---------------------------------------------------------------- public API
 
-  placeBall(id: number, x: number, y: number, visible: boolean, roll = false): void {
+  placeBall(id: number, x: number, y: number, visible: boolean, roll = false, lift = 0): void {
     const b = this.balls[id];
     if (roll && b.mesh.visible && b.drop < 0) {
       const dx = (x - b.x) * M;
@@ -426,7 +454,7 @@ export class Stage {
     b.y = y;
     b.drop = -1;
     b.mesh.scale.setScalar(1);
-    b.mesh.position.set(wx(x), BR, wz(y));
+    b.mesh.position.set(wx(x), BR + lift, wz(y));
     b.mesh.visible = visible;
   }
 
@@ -507,12 +535,17 @@ export class Stage {
       this.ring.visible = false;
       return;
     }
-    main.set(g.c.x, g.c.y, g.e.x, g.e.y);
+    // The line starts at the edge of the cue ball rather than its centre.
+    const len = Math.hypot(g.e.x - g.c.x, g.e.y - g.c.y) || 1;
+    const k = Math.min(len, BALL_R * 1.25) / len;
+    main.color(g.jump ? 0xffd166 : 0xffffff);
+    main.set(g.c.x + (g.e.x - g.c.x) * k, g.c.y + (g.e.y - g.c.y) * k, g.e.x, g.e.y);
     this.ring.visible = g.ghost;
     this.ring.position.set(wx(g.e.x), 0.004, wz(g.e.y));
-    if (g.obj) obj.set(g.obj.x, g.obj.y, g.obj.x + g.obj.dx * 260, g.obj.y + g.obj.dy * 260);
+    // Short stubs only: they hint at the line of the shot without plotting it.
+    if (g.obj) obj.set(g.obj.x + g.obj.dx * BALL_R * 1.2, g.obj.y + g.obj.dy * BALL_R * 1.2, g.obj.x + g.obj.dx * (BALL_R * 1.2 + 80), g.obj.y + g.obj.dy * (BALL_R * 1.2 + 80));
     else obj.hide();
-    if (g.defl) defl.set(g.e.x, g.e.y, g.e.x + g.defl.dx * g.defl.len, g.e.y + g.defl.dy * g.defl.len);
+    if (g.defl) defl.set(g.e.x + g.defl.dx * BALL_R * 1.2, g.e.y + g.defl.dy * BALL_R * 1.2, g.e.x + g.defl.dx * (BALL_R * 1.2 + g.defl.len), g.e.y + g.defl.dy * (BALL_R * 1.2 + g.defl.len));
     else defl.hide();
   }
 
@@ -608,16 +641,16 @@ export class Stage {
         topDown(this.fitDistance());
         k = 7;
         break;
-      case "watch":
-        if (this.portrait) topDown(this.fitDistance());
-        else {
-          const d = this.fitDistance() * 1.1;
-          const el = 1.0;
-          t.position.set(0, d * Math.sin(el), d * Math.cos(el));
-          t.lookAt(0, 0, 0.02);
-        }
+      case "watch": {
+        const d = this.fitDistance() * 1.1;
+        const el = 1.0;
+        // Tilted, never top-down. In portrait the long side of the table runs up the screen.
+        if (this.portrait) t.position.set(d * Math.cos(el), d * Math.sin(el), 0);
+        else t.position.set(0, d * Math.sin(el), d * Math.cos(el));
+        t.lookAt(0, 0, this.portrait ? 0 : 0.02);
         k = 4;
         break;
+      }
     }
     if (this.snap) {
       this.snap = false;

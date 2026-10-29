@@ -32,3 +32,7 @@ export const FRAME_RATE = 1 / DT / FRAME_EVERY; // recorded frames per second (6
 export const SPIN_FOLLOW = 0.6; // follow/draw: added along the shot line on the cue ball's first contact
 export const SPIN_RAIL = 0.35; // side spin: tangential kick on a cushion, per unit of normal speed
 export const SPIN_RAIL_DECAY = 0.6; // side spin left after each cushion
+
+// Jump shot: the cue ball leaves the cloth, so it passes over balls and pockets for a fixed time.
+export const JUMP_STEPS = 84; // airtime in sim steps (0.35s)
+export const JUMP_SPEED = 0.85; // fraction of the normal cue speed a jump shot keeps

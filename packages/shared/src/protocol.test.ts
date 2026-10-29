@@ -5,6 +5,11 @@ import { TOURNAMENT_SIZE, VENUES } from "./tournament";
 const parse = (m: unknown) => parseClientMessage(JSON.stringify(m));
 
 describe("protocol", () => {
+  it("accepts a jump flag only as a boolean", () => {
+    expect(parse({ t: "shot", angle: 1, power: 0.5, jump: true })).toMatchObject({ jump: true });
+    expect(parse({ t: "shot", angle: 1, power: 0.5, jump: "yes" })).toBeNull();
+  });
+
   it("accepts a shot with and without spin", () => {
     expect(parse({ t: "shot", angle: 1, power: 0.5 })).toMatchObject({ t: "shot", angle: 1, power: 0.5, spin: undefined });
     expect(parse({ t: "shot", angle: 1, power: 0.5, spin: { x: 0.3, y: -0.4 } })).toMatchObject({ spin: { x: 0.3, y: -0.4 } });

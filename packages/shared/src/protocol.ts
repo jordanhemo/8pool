@@ -9,6 +9,7 @@ export interface WireShot {
   angle: number;
   power: number;
   spin?: Spin;
+  jump?: boolean;
   placement?: { x: number; y: number };
 }
 
@@ -74,6 +75,8 @@ export interface ShotReport {
   frames: number[][];
   pocketFrames: Record<number, number>;
   events: ShotEvents;
+  /** Frames the cue ball spends airborne on a jump shot. */
+  air?: number;
 }
 
 export interface TurnTiming {
@@ -210,7 +213,8 @@ export function parseClientMessage(raw: string): ClientMessage | null {
         if (typeof m.spin !== "object" || m.spin === null || !isNum(m.spin.x) || !isNum(m.spin.y) || Math.hypot(m.spin.x, m.spin.y) > 1.0001) return null;
         spin = { x: m.spin.x, y: m.spin.y };
       }
-      return { t: "shot", angle: m.angle, power: m.power, spin, placement };
+      if (m.jump !== undefined && typeof m.jump !== "boolean") return null;
+      return { t: "shot", angle: m.angle, power: m.power, spin, jump: m.jump === true ? true : undefined, placement };
     }
     default:
       return null;

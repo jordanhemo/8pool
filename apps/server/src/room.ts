@@ -148,7 +148,7 @@ export class Room {
   }
 
   private report(r: ShotResult): ShotReport {
-    return { frames: r.frames, pocketFrames: r.pocketFrames, events: r.events };
+    return { frames: r.frames, pocketFrames: r.pocketFrames, events: r.events, air: r.air };
   }
 
   private sendMatchState(seat: Seat, resumed: boolean): void {

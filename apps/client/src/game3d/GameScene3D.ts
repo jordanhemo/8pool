@@ -29,6 +29,13 @@ interface Anim {
 
 const DRAG_SENS = 0.0042; // radians per pixel in the 3D view
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Height (world metres) of an airborne cue ball `frame` frames into a jump of `air` frames. */
+const hop = (air: number | undefined, frame: number): number => {
+  if (!air || frame >= air) return 0;
+  const u = frame / air;
+  return 4 * u * (1 - u) * BALL_R * 0.001 * 2.6;
+};
 const coarse = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
 
 export class GameScene3D {
@@ -48,6 +55,7 @@ export class GameScene3D {
   private recorded = false;
   private slowView = false;
   private spin = { x: 0, y: 0 };
+  private jump = false;
   private lastShot: ShotReport | null = null;
   private replay: { report: ShotReport; frame: number; lastIdx: number; dropped: Set<number> } | null = null;
 
@@ -73,6 +81,7 @@ export class GameScene3D {
       onPowerEnd: (p) => this.endCharge(p),
       onToggleView: () => this.toggleView(),
       onReplay: () => (this.replay ? this.stopReplay() : this.startReplay()),
+      onJump: (on) => { if (this.phase === "aiming" || this.phase === "charging") this.jump = on; },
       onSpin: (x, y) => { if (this.phase === "aiming" || this.phase === "charging") this.spin = { x, y }; },
       onEmote: (id) => { if (data_.mode === "online") data_.net.send({ t: "emote", id }); },
       onLeave: () => this.leave(),
@@ -140,7 +149,7 @@ export class GameScene3D {
 
   private syncView(): void {
     let mode: CamMode;
-    if (this.phase === "placing") mode = "top";
+    if (this.phase === "placing") mode = this.view3d ? "watch" : "top";
     else if (this.phase === "aiming" || this.phase === "charging") mode = this.view3d ? "aim" : "top";
     else mode = this.view3d ? "watch" : "top";
     if (this.replay) mode = this.view3d ? "watch" : "top";
@@ -446,7 +455,7 @@ export class GameScene3D {
     const placement = this.game_.ballInHand && this.placed ? { ...this.cue } : undefined;
     const hasSpin = Math.hypot(this.spin.x, this.spin.y) > 0.02;
     const spin = hasSpin ? { x: round2(this.spin.x), y: round2(this.spin.y) } : undefined;
-    const shot = { angle: this.aimAngle, power: this.power, spin, placement };
+    const shot = { angle: this.aimAngle, power: this.power, spin, jump: this.jump || undefined, placement };
 
     if (d.mode === "online") {
       if (!d.net.send({ t: "shot", ...shot })) {
@@ -518,6 +527,8 @@ export class GameScene3D {
   private resetSpin(): void {
     this.spin = { x: 0, y: 0 };
     this.hud.setSpin(0, 0);
+    this.jump = false;
+    this.hud.setJump(false);
   }
 
   private startAnim(report: ShotReport, next: GameState, prev: GameState, shooter: Seat): void {
@@ -555,7 +566,7 @@ export class GameScene3D {
         }
         continue;
       }
-      this.stage.placeBall(id, f[id * 2] + (g[id * 2] - f[id * 2]) * t, f[id * 2 + 1] + (g[id * 2 + 1] - f[id * 2 + 1]) * t, true, true);
+      this.stage.placeBall(id, f[id * 2] + (g[id * 2] - f[id * 2]) * t, f[id * 2 + 1] + (g[id * 2 + 1] - f[id * 2 + 1]) * t, true, true, id === 0 ? hop(a.report.air, a.frame) : 0);
     }
     if (idx >= last) {
       this.anim = null;
@@ -602,7 +613,7 @@ export class GameScene3D {
         }
         continue;
       }
-      this.stage.placeBall(id, f[id * 2] + (g[id * 2] - f[id * 2]) * t, f[id * 2 + 1] + (g[id * 2 + 1] - f[id * 2 + 1]) * t, true, true);
+      this.stage.placeBall(id, f[id * 2] + (g[id * 2] - f[id * 2]) * t, f[id * 2 + 1] + (g[id * 2 + 1] - f[id * 2 + 1]) * t, true, true, id === 0 ? hop(r.report.air, r.frame) : 0);
     }
     if (idx >= last) window.setTimeout(() => { if (this.replay === r) this.stopReplay(); }, 700);
   }
@@ -669,7 +680,7 @@ export class GameScene3D {
     if (dy > 0) tMin = Math.min(tMin, (TABLE_H - BALL_R - c.y) / dy);
     if (dy < 0) tMin = Math.min(tMin, (BALL_R - c.y) / dy);
     let hit = -1;
-    for (let id = 1; id < 16; id++) {
+    for (let id = 1; id < 16 && !this.jump; id++) {
       const b = this.game_.balls[id];
       if (b.pocketed) continue;
       const fx = c.x - b.x;
@@ -684,7 +695,7 @@ export class GameScene3D {
       }
     }
     const e = { x: c.x + dx * tMin, y: c.y + dy * tMin };
-    const guide: Guide = { c: { x: c.x, y: c.y }, e, ghost: hit > 0 };
+    const guide: Guide = { c: { x: c.x, y: c.y }, e, ghost: hit > 0, jump: this.jump };
     if (hit > 0) {
       const b = this.game_.balls[hit];
       let nx = b.x - e.x;
@@ -697,7 +708,7 @@ export class GameScene3D {
       const tx = dx - dot * nx;
       const ty = dy - dot * ny;
       const tl = Math.hypot(tx, ty);
-      if (tl > 0.05) guide.defl = { dx: tx / tl, dy: ty / tl, len: 60 + 220 * tl };
+      if (tl > 0.05) guide.defl = { dx: tx / tl, dy: ty / tl, len: 18 + 42 * tl };
     }
     return guide;
   }

@@ -175,6 +175,11 @@ button:disabled { cursor: default; }
   backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); touch-action: none;
 }
 .spin span { font-size: 10px; font-weight: 800; letter-spacing: 0.12em; color: var(--muted); }
+.jump-btn {
+  margin-top: 2px; padding: 6px 14px; border-radius: 10px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.06);
+  color: var(--muted); font: inherit; font-size: 11px; font-weight: 800; letter-spacing: 0.12em; cursor: pointer;
+}
+.jump-btn.on { background: var(--accent, #ffd166); border-color: transparent; color: #1a1a1a; box-shadow: 0 0 14px rgba(255, 209, 102, 0.55); }
 .spin-ball {
   position: relative; width: 76px; height: 76px; border-radius: 50%; touch-action: none; cursor: crosshair;
   background: radial-gradient(circle at 35% 30%, #fff, #d9d5c9 65%, #9b968a);

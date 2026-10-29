@@ -137,4 +137,24 @@ describe("physics", () => {
       expect(() => simulateShot(g.balls, { angle: 0, power: 0.5, spin: { x: NaN, y: 0 } })).toThrow("invalid shot");
     });
   });
+
+  it("a jump shot passes over a ball in its way, a normal shot hits it", () => {
+    const balls = emptyBalls();
+    place(balls, 0, 600, 600);
+    place(balls, 1, 760, 600); // 160mm ahead: the cue ball is still in the air when it gets there
+    place(balls, 2, 1900, 600);
+    const flat = simulateShot(balls, { angle: 0, power: 0.5 });
+    expect(flat.events.firstContact).toBe(1);
+    const hop = simulateShot(balls, { angle: 0, power: 0.5, jump: true });
+    expect(hop.events.firstContact).not.toBe(1);
+    expect(hop.air).toBeGreaterThan(0);
+    expect(flat.air).toBeUndefined();
+  });
+
+  it("a jumping cue ball is not pocketed while airborne", () => {
+    const balls = emptyBalls();
+    place(balls, 0, 150, 150);
+    const r = simulateShot(balls, { angle: Math.PI * 1.25, power: 0.5, jump: true });
+    expect(r.events.pocketed).not.toContain(0);
+  });
 });
