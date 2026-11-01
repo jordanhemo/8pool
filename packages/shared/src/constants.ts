@@ -13,8 +13,8 @@ export const REST_SPEED = 1; // below this a ball is stopped
 export const BALL_RESTITUTION = 0.95;
 export const CUSHION_RESTITUTION = 0.75;
 
-export const CORNER_POCKET_R = 70;
-export const SIDE_POCKET_R = 60;
+export const CORNER_POCKET_R = 90; // scaled with BALL_R (was 70 for a 28.6mm ball)
+export const SIDE_POCKET_R = 78; // was 60
 export const POCKETS = [
   { x: 0, y: 0, r: CORNER_POCKET_R },
   { x: TABLE_W / 2, y: 0, r: SIDE_POCKET_R },

@@ -290,8 +290,8 @@ export class Stage {
       m.receiveShadow = true;
       g.add(m);
     };
-    const cornerGap = 0.078;
-    const sideGap = 0.072;
+    const cornerGap = 0.1; // cushion stops short of each pocket by roughly its capture reach
+    const sideGap = 0.092;
     const half = TW / 2 - cornerGap - sideGap;
     const lenLong = half;
     const centreLong = sideGap + half / 2;
